@@ -2,10 +2,14 @@ import RPi.GPIO as GPIO
 import sys
 import sqlite3
 
-dbfile = "mydb.sqlite" # path to db file
+import deviceMan
 
-if NOT (os.path.isfile(dbfile)): # check if need to create file
-    conn, cur = createDB(dbfile) # create file
+
+
+dbfile = "mydb.sqlite" # path to DB file
+
+[conn, cur] = openDB(dbfile) # open DB
+
 
 
 conn.close() # close db file
