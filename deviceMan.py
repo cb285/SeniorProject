@@ -1,10 +1,13 @@
+import sqlite3
+import os
+
 # Function: openDB
 # opens the DB if it exists, otherwise it creates one
 def openDB(dbFilename):
-	if not (os.path.isfile(dbfile)): # check if need to create file
-		return createDB(dbfile) # create file
+	if not (os.path.isfile(dbFilename)): # check if need to create file
+		return createDB(dbFilename) # create file
 	else:
-		conn = sqlite3.connect(dbfilename)
+		conn = sqlite3.connect(dbFilename)
 		cur = conn.cursor()
 		
 		colNames = list(map(lambda x: x[0], cur.description))
@@ -28,7 +31,7 @@ def createDB(dbfilename):
 
 # Function: addDevice
 def addDevice(cur, deviceName, deviceType, deviceID):
-    cur.execute('INSERT INTO devices VALUES (?, ?, ?)', deviceID, deviceType, deviceName)
+	cur.execute("INSERT INTO devices VALUES (?, ?, ?)", (deviceID, deviceType, deviceName))
 	cur.commit()
 	
 # Function: removeDeviceByName
