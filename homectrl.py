@@ -1,36 +1,36 @@
 #! /usr/bin/python
 
-#import RPi.GPIO as GPIO
 import sys
-import sqlite3
 
 from xbee import XBee, ZigBee
 import serial
 
+#import RPi.GPIO as GPIO
+
 from Modules import deviceMan
 
-# Defaults:
-dbFilename = "mydb.sqlite" # path to DB file
+def main(args):
+    # Defaults:
+    dbFilename = "mydb.sqlite" # path to DB file
+    
+    for i in range(args):
+        cmd = args[i].lower()
+        if cmd == "db":
+            i += 1
+            dbFilename = args[i]            
+        elif cmd == "add":
+            i += 1
+            deviceMan.addDevice(cur, args[i])
+            deviceMan.testComm(cur, args[i])
+        elif cmd == "remove":
+            i += 1
+            deviceMan.removeDevice(cur, args[i])
+        elif cmd == "status":
+            deviceMan.deviceStat(cur, args[i])
 
-# Constants:
-DOUT_TYPE = 0x1
-DIN_TYPE = 0x2
+    # open/create database
+    [conn, cur] = deviceMan.openDB(dbFilename)
 
-
-# for i in range(sys.argc):
-	# cmd = sys.argv[i].lower()
-	# if cmd == "db":
-		# i += 1
-		# dbfile = sys.argv[i]
-		# [conn, cur] = deviceMan.openDB(dbfile) # open DB
-
-	# elif cmd == "add":
-		# deviceMan.addDevice(cur, )
-
-
-# open/create database
-[conn, cur] = deviceMan.openDB(dbFilename)
-
-deviceMan.addDevice(conn, cur, 0x0, 0xFFFF)
-
-conn.close() # close db file
+    #deviceMan.addDevice(conn, cur, 0x0, 0xFFFF)
+    
+    conn.close() # close db file
