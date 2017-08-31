@@ -11,4 +11,4 @@ while True:
         s.close()
         exit(0)
     else:
-        s.send(cmd)
+        s.send(cmd.encode('utf-8'))

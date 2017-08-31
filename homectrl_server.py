@@ -1,12 +1,13 @@
-#! /usr/bin/python
+#! /usr/bin/python3
 
 import sys
-
+import os
+import sqlite3
 from xbee import XBee
 import serial
 import time
 import logging
-import socket
+from flask import Flask, request
 
 #import RPi.GPIO as GPIO
 
@@ -22,7 +23,7 @@ def createDB(dbfilename):
     # create empty table
     cur.execute("CREATE TABLE devices (id integer primary key, type text, name text)")
     conn.commit()
-                
+    
 # Function: addDevice
 def addDevice(deviceName, deviceType, deviceID):
     cur.execute("INSERT INTO devices VALUES (?, ?, ?)", (deviceID, deviceType, deviceName))
@@ -42,13 +43,13 @@ def removeDeviceByName(deviceName):
 def removeDeviceByID(conn, cur, deviceID):
     cur.execute("DELETE FROM devices WHERE id=?", (deviceID,))
     conn.commit()
-        
+    
 # Function: clearDB
 # deletes all devices from table
 def clearDB(conn, cur):
     cur.execute("DELETE FROM devices")
     conn.commit()
-        
+    
 def serialConnect():
     # setup serial connection (except port)
     ser = serial.Serial()
@@ -73,7 +74,7 @@ def xbee_rx_handler(xbee):
 	cur = conn.cursor()
         log("opened existing db " + dbFilename)
 """
-        
+
 def log(str):
     TIME_FORMAT = "%Y-%m-%d %H:%M:%S"    
     logging.debug(time.strftime(TIME_FORMAT) + ": " + str + "\n")
@@ -83,66 +84,72 @@ def main(args):
     
     if not (os.path.isfile(DB_FILENAME)): # check if need to create file
         log(DB_FILENAME + " doesn't exist, creating it.")
-	createDB(DB_FILENAME) # create file
+        createDB(DB_FILENAME) # create file
     else:
-	conn = sqlite3.connect(DB_FILENAME)
-	cur = conn.cursor()
+        conn = sqlite3.connect(DB_FILENAME)
+        cur = conn.cursor()
         log("opened existing db " + DB_FILENAME)
-    
+
+    """
     # open serial port to xbee module
     ser = serialConnect()
     
     # connect to xbee module
-    xbee = Xbee(ser) # callback=xbee_rx_handler)
+    xbee = Xbee(ser) #, callback=xbee_rx_handler)
     
     log("connected to xbee at " + ser.port)
+    """
     
-    # setup socket
-    HOST = "127.0.0.1"
-    PORT = 50007
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind((HOST, PORT))
-    s.listen(1) # accept max of 1 connections
-    conn, addr = s.accept()
-    log("connected by " + addr)
+    # setup
+    app = Flask(__name__)
     
-    while True:
-        try:
-            #  wait for message from client
-            data = conn.recv(1024)
-            log("received: " + data)
-            
-            cmd_args = data.split(";")
-            cmd = cmd_args[0]
-            
-            if cmd == "set":
-                if cmd_args[1] == "on":
-                    log("turning LED on")
-                    xbee.at(command='D1', parameter='\x05') # turn LED on
-                    resp = xbee.wait_read_frame()
-                    log("xbee resp: " + str(resp))
-                elif splitmgs[1] == "off":
-                    log("turning LED off")
-                    xbee.at(command='D1', parameter='\x04') # turn LED off
-                    resp = xbee.wait_read_frame()
-                    log("xbee resp: " + str(resp))
-                else:
-                    log("invalid command: " + data)
-            elif cmd == "get":
-                log("getting LED status")
-                xbee.at(command='IS', frame_id='C')
-                resp = xbee.wait_read_frame()
-                print resp
-            elif cmd == "add":
-                pass
-            elif cmd == "remove":
-                pass
-            else:
-                print "invalid command: " + data
-            
-        except KeyboardInterrupt: # if ctrl+C is pressed
-            socket.close() # close zmq socket
-            conn.exit() # close db file
-            exit(0) # exit program
-            
+    @app.route('/',methods=['GET'])
+    def get_handler():
+        params = request.args
         
+        log("GET Request: " + params)
+        
+        command = params["command"]
+        
+        if (command == "set"):
+            device_name = params["name"]
+            set_to = params["to"]
+            
+            if (set_to == "on"):
+                log("turning LED on")
+                #xbee.at(command='D1', parameter='\x05') # turn LED on
+                #resp = xbee.wait_read_frame()
+                #log("xbee resp: " + str(resp))
+            elif (set_to == "off"):
+                log("turning LED off")
+                #xbee.at(command='D1', parameter='\x04') # turn LED off
+                #resp = xbee.wait_read_frame()
+                #log("xbee resp: " + str(resp))
+            else:
+                log("invalid set command")
+        elif (cmd == "get"):
+            log("getting LED status")
+            #xbee.at(command='IS', frame_id='C')
+            #resp = xbee.wait_read_frame()
+            #log("xbee resp: " + str(resp))
+        elif (cmd == "devices"):
+            log("getting list of devices")
+            #getDevices()
+        elif cmd == "add":
+            pass
+        elif cmd == "remove":
+            pass
+        else:
+            print ("invalid command")
+        
+        return ("OK")
+
+    app.run()
+
+if (__name__ == "__main__"):
+    main(sys.argv)
+    
+#except KeyboardInterrupt: # if ctrl+C is pressed
+#   socket.close() # close zmq socket
+#  conn.exit() # close db file
+#  exit(0) # exit program
