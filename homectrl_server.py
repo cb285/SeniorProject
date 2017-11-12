@@ -1,4 +1,4 @@
-#! /usr/bin/python3
+#! /usr/bin/python2
 
 import sys
 import os
@@ -51,9 +51,9 @@ def clearDB(conn, cur):
     conn.commit()
     
 def serialConnect():
-    # setup serial connection (except port)
+    # setup serial connection
     ser = serial.Serial()
-    ser.port = "/dev/ttyUSB0"
+    ser.port = "/dev/ttyS0"
     ser.baudrate = 9600
     ser.timeout = 10
     ser.write_timeout = 10
@@ -76,9 +76,11 @@ def xbee_rx_handler(xbee):
 """
 
 def log(str):
-    TIME_FORMAT = "%Y-%m-%d %H:%M:%S"    
-    logging.debug(time.strftime(TIME_FORMAT) + ": " + str + "\n")
-    
+    TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+    printstr = time.strftime(TIME_FORMAT) + ": " + str + "\n"
+    logging.debug(printstr)
+    print(printstr)
+
 def main(args):    
     logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG) # setup logging
     
@@ -89,62 +91,95 @@ def main(args):
         conn = sqlite3.connect(DB_FILENAME)
         cur = conn.cursor()
         log("opened existing db " + DB_FILENAME)
-
-    """
+    
+    # store xbee module addresses
+    device_addrs = dict()
+    device_addrs['outlet'] = '\x00\x13\xA2\x00\x41\x55\x37\x31'
+    device_addrs['light'] = '\x00\x13\xA2\x00\x41\x55\x37\x31'
+    
     # open serial port to xbee module
     ser = serialConnect()
     
     # connect to xbee module
-    xbee = Xbee(ser) #, callback=xbee_rx_handler)
+    xbee = XBee(ser) #, callback=xbee_rx_handler)
     
     log("connected to xbee at " + ser.port)
-    """
     
-    # setup
+    xbee.at(frame_id='A', command='MY')
+    
+    reply = xbee.wait_read_frame()
+    log("local xbee MY: " + str(reply))
+    
+    # http://localhost:5000/?cmd=set&name=testname&to=off
+    
+    # setup http GET request handler
     app = Flask(__name__)
     
     @app.route('/',methods=['GET'])
     def get_handler():
         params = request.args
         
-        log("GET Request: " + params)
+        log("GET request: " + str(params))
         
-        command = params["command"]
+        command = params["cmd"]
+        device_name = params["name"]
         
         if (command == "set"):
-            device_name = params["name"]
-            set_to = params["to"]
-            
-            if (set_to == "on"):
-                log("turning LED on")
-                #xbee.at(command='D1', parameter='\x05') # turn LED on
-                #resp = xbee.wait_read_frame()
-                #log("xbee resp: " + str(resp))
-            elif (set_to == "off"):
-                log("turning LED off")
-                #xbee.at(command='D1', parameter='\x04') # turn LED off
-                #resp = xbee.wait_read_frame()
-                #log("xbee resp: " + str(resp))
+            if (device_name in device_addrs.keys()):
+                # get requested setting
+                set_to = params["to"]
+                dev_addr = device_addrs[device_name]
+                
+                # turn on
+                if (set_to == "on"):
+                    log("turning " + device_name + " on")
+                    xbee.remote_at(frame_id='B', dest_addr_long=dev_addr, command='D0', parameter='\x05') # set pin 0 to high
+                    resp = xbee.wait_read_frame()
+                    log("remote xbee resp: " + str(resp))
+                    if(resp["status"] == 0):
+                        return("OK")
+                    else:
+                        return("FAILED")
+                # turn off
+                elif (set_to == "off"):
+                    log("turning " + device_name + " off")
+                    xbee.remote_at(frame_id='C', dest_addr_long=dev_addr, command='D0', parameter='\x04') # set pin 0 to low
+                    resp = xbee.wait_read_frame()
+                    log("remote xbee resp: " + str(resp))
+                    if(resp["status"] == 0):
+                        return("OK")
+                    else:
+                        return("FAILED")
+                # unknown command
+                else:
+                    log("invalid set command")
+                    return ("INVALID COMMAND")
             else:
-                log("invalid set command")
+                log("unknown device name")
+                return("INVALID DEVICE")
+        
         elif (cmd == "get"):
-            log("getting LED status")
-            #xbee.at(command='IS', frame_id='C')
+            pass
+            """
+            log("getting " + devname + " status")
+            xb.remote_at(command='IS', frame_id='C')
             #resp = xbee.wait_read_frame()
             #log("xbee resp: " + str(resp))
+            """
         elif (cmd == "devices"):
-            log("getting list of devices")
-            #getDevices()
+            pass
         elif cmd == "add":
             pass
         elif cmd == "remove":
             pass
         else:
             print ("invalid command")
+            return("INVALID COMMAND")
         
         return ("OK")
-
-    app.run()
+    
+    # start http GET request handler
+    app.run(host='0.0.0.0', port=5000)
 
 if (__name__ == "__main__"):
     main(sys.argv)
