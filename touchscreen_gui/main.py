@@ -24,31 +24,44 @@ class ThermTab(TabbedPanelItem):
         super(ThermTab,self).__init__(**kwargs)
         
         self.text="Thermostat"
-        self.content = FloatLayout()
+        self.content = FloatLayout(background_normal="test.jpeg")
+        #background_normal = '', background_color=(1,0,0,1)
         
         #self.myclock = MyClock()
         #self.content.add_widget(self.myclock)
         
-        self.timelabel = Label(text=time.strftime(TIME_FORMAT), font_size=48, size_hint=(0.5, 0.2), pos_hint={'x': 0.1, 'y': 0.8})
+        self.timelabel = Label(text=time.strftime(TIME_FORMAT), font_size=72, size_hint=(0.5, 0.2), pos_hint={'center_x': 0.5, 'center_y': 0.8})
         Clock.schedule_interval(self.update_timelabel, 3)
         
         self.content.add_widget(self.timelabel)
-
-        self.curr_temp = NumericProperty(70)
-        self.set_temp = NumericProperty(70)
         
-        self.curr_temp_label = Label(text="Current: 70 F", font_size=36, size_hint=(0.5, 0.1), pos_hint={'x': 0.1, 'y': 0.6})
+        self.curr_temp = 70
+        self.set_temp = 70
+        
+        self.curr_temp_label = Label(text="Current: 70 F", font_size=42, size_hint=(0.5, 0.1), pos_hint={'center_x': 0.45, 'center_y': 0.6}, text_size=(350, None))
         self.content.add_widget(self.curr_temp_label)
-        
-        Clock.schedule_interval(self.update_therm, 3)
-        
-        self.set_temp_label = Label(text="Set: 70 F", font_size=36, size_hint=(0.5, 0.1), pos_hint={'x': 0.1, 'y': 0.5})
+                
+        self.set_temp_label = Label(text= "Set: 70 F", font_size=42, size_hint=(0.5, 0.1), pos_hint={'center_x': 0.45, 'center_y': 0.5}, text_size=(350, None))
         self.content.add_widget(self.set_temp_label)
         
-        self.increase_temp_button = Button(text="+", font_size=36, size_hint=(0.1, 0.1), pos_hint={'x': 0.5, 'y': 0.5}, on_press=self.increase_temp)
+        self.increase_temp_button = Button(text="+", font_size=48, size_hint=(0.1, 0.1), pos_hint={'center_x': 0.6, 'center_y': 0.55}, on_release=self.increase_temp)
         self.content.add_widget(self.increase_temp_button)
-        self.decrease_temp_button = Button(text="-", font_size=36, size_hint=(0.1, 0.1), pos_hint={'x': 0.5, 'y': 0.4}, on_press=self.decrease_temp)
+        self.decrease_temp_button = Button(text="-", font_size=48, size_hint=(0.1, 0.1), pos_hint={'center_x': 0.6, 'center_y': 0.45}, on_release=self.decrease_temp)
         self.content.add_widget(self.decrease_temp_button)
+
+        self.current_mode_label = Label(text="Mode: Heat", font_size=26, size_hint=(0.5, 0.1), pos_hint={'center_x': 0.45, 'center_y': 0.4}, text_size=(350, None))
+        self.content.add_widget(self.current_mode_label)
+        
+        self.heat_mode_button = Button(text="Heat", size_hint=(0.1, 0.1), pos_hint={'center_x': 0.35, 'center_y': 0.2}, on_release=self.set_heat_mode)
+        self.content.add_widget(self.heat_mode_button)
+        self.cool_mode_button = Button(text="Cool", size_hint=(0.1, 0.1), pos_hint={'center_x': 0.45, 'center_y': 0.2}, on_release=self.set_cool_mode)
+        self.content.add_widget(self.cool_mode_button)
+        self.auto_mode_button = Button(text="Auto", size_hint=(0.1, 0.1), pos_hint={'center_x': 0.55, 'center_y': 0.2}, on_release=self.set_auto_mode)
+        self.content.add_widget(self.auto_mode_button)
+        self.off_mode_button = Button(text="Off", size_hint=(0.1, 0.1), pos_hint={'center_x': 0.65, 'center_y': 0.2}, on_release=self.set_off_mode)
+        self.content.add_widget(self.off_mode_button)
+
+        Clock.schedule_interval(self.update_therm, 3)
         
     def update_timelabel(self, event):
         self.timelabel.text = time.strftime(TIME_FORMAT)
@@ -59,33 +72,46 @@ class ThermTab(TabbedPanelItem):
     def decrease_temp(self, event):
         if (self.set_temp > 32):
             self.set_temp -= 1
-            self.set_temp_label.text = str(self.set_temp)
+            self.set_temp_label.text = "Set: " + str(self.set_temp) + " F"
 
     def increase_temp(self, event):
         if (self.set_temp < 100):
             self.set_temp += 1
-            self.set_temp_label.text = str(self.set_temp)
+            self.set_temp_label.text = "Set: " + str(self.set_temp) + " F"
+
+    def set_heat_mode(self, event):
+        self.current_mode_label.text = "Mode: Heat"
+
+    def set_cool_mode(self, event):
+        self.current_mode_label.text = "Mode: Cool"
+
+    def set_auto_mode(self, event):
+        self.current_mode_label.text = "Mode: Auto"
+        
+    def set_off_mode(self, event):
+        self.current_mode_label.text = "Mode: Off"
         
 class DeviceTab(TabbedPanelItem):
     def __init__(self,**kwargs):
         super(DeviceTab,self).__init__(**kwargs)
         
         self.text="Devices"
-        self.content = GridLayout(cols=3, rows=5)
-        
-        self.add_button = Button(text="+", font_size=24, on_press=self.add_device, size_hint=(0.1, 0.1), pos_hint={'x': 0.9, 'y': 0.9})
+        self.content = FloatLayout()
+        self.gridlayout = GridLayout(cols=3, rows=5)
+        self.content.add_widget(self.gridlayout)
+        self.add_button = Button(text="+", font_size=48, background_normal="", background_color=(0,0,1,.7), on_press=self.add_device, size_hint=(0.1, 0.2), pos_hint={'x': 0.9, 'y': 0})
         self.content.add_widget(self.add_button)
         
     def add_device(self, event):
-        self.content.remove_widget(self.add_button)
-        self.content.add_widget(DeviceTile())
-        self.content.add_widget(self.add_button)
+        #self.content.remove_widget(self.add_button)
+        self.gridlayout.add_widget(DeviceTile())
+        #self.content.add_widget(self.add_button)
         
 class DeviceTile(FloatLayout):
     def __init__(self,**kwargs):
         super(DeviceTile,self).__init__(**kwargs)
         
-        self.setup_window = DeviceSetupWindow(self, size_hint=(0.75 , 0.75), pos_hit={'x_center': 0.5, 'y_center': 0.5}, on_dismiss=self.setup_tile, title="Device Setup", )
+        self.setup_window = DeviceSetupWindow(self, size_hint=(0.5 , 0.5), pos_hit={'x_center': 0.5, 'y_center': 0.5}, on_dismiss=self.setup_tile, title="Device Setup", auto_dismiss=False)
         self.is_setup = BooleanProperty(False)
         self.device_name = StringProperty("null")
         self.device_id = StringProperty("null")
@@ -94,23 +120,20 @@ class DeviceTile(FloatLayout):
         self.setup_window.open()
         #self.add_widget(self.setup_window)
         
-    def setup_tile(self, event):
-        print("in setup_tile")
-        
+    def setup_tile(self, event):        
         if(not self.is_setup):
-            print("tile is not setup")
             self.parent.remove_widget(self)
             return
         
-        self.label = Label(text=self.device_name, size_hint=(0.25, 0.25), pos_hint={'center_x': 0.5, 'center_y': 0.6})
+        self.label = Label(text=self.device_name, font_size=36, size_hint=(0.5, 0.5), pos_hint={'center_x': 0.5, 'center_y': 0.65})
         self.add_widget(self.label)
         
-        self.switch = Switch(on_press=self.toggle, active=False, size_hint=(1, 1), pos_hint={'center_x': 0.5, 'center_y': 0.5})
+        self.switch = Switch(on_press=self.toggle, active=False, size_hint=(0.5, 0.5), pos_hint={'center_x': 0.5, 'center_y': 0.5})
         self.add_widget(self.switch)
         
-        self.close_button = Button(background_normal = '', background_color=(1,0,0,1), text="x", pos_hint={'x': 0.9, 'y': 0.9}, size_hint=(.1, .1), on_press=self.close_tile)
+        self.close_button = Button(background_normal = '', background_color=(1,0,0,1), text="x", font_size=26, pos_hint={'x': 0.9, 'y': 0.9}, size_hint=(.1, .1), on_press=self.close_tile)
         self.add_widget(self.close_button)
-
+        
     def toggle(self, event):
         pass
         
@@ -122,28 +145,28 @@ class DeviceSetupWindow(Popup):
         super(DeviceSetupWindow,self).__init__(**kwargs)
         self.caller = caller
         self.content = FloatLayout()
-                
+        
         # add close button
         self.close_button = Button(text="x", background_normal = '', background_color=(1,0,0,1), pos_hint={'x': 0.9, 'y': 0.9}, size_hint=(0.1, 0.1), on_press=self.close_setupwindow)
         
         self.content.add_widget(self.close_button)
         
         # add buttons for choosing device type
-        self.outlet_button = ToggleButton(text="Outlet", group="type", on_press=self.toggle_outlet_button, pos_hint={'x': 0, 'y': .8}, size_hint=(.2, .2))
+        self.outlet_button = ToggleButton(text="Outlet", group="type", on_press=self.toggle_outlet_button, pos_hint={'x': 0, 'y': .75}, size_hint=(.3, .25))
         self.outlet_active = False
         self.content.add_widget(self.outlet_button)
-        self.lightswitch_button = ToggleButton(text="LightSwitch", group="type", on_press=self.toggle_lightswitch_button, pos_hint={'x': .2, 'y': .8}, size_hint=(0.2, 0.2))
+        self.lightswitch_button = ToggleButton(text="Lightswitch", group="type", on_press=self.toggle_lightswitch_button, pos_hint={'x': .3, 'y': .75}, size_hint=(0.3, 0.25))
         self.lightswitch_active = False
         self.content.add_widget(self.lightswitch_button)
         
         # add entry boxes for device ID and Name
-        self.id_entry = TextInput(text="Device ID", pos_hint={'x': 0, 'y': .5}, size_hint=(.8, .1))
+        self.id_entry = TextInput(hint_text="Device ID", pos_hint={'x': 0, 'y': .5}, size_hint=(.6, .15), )
         self.content.add_widget(self.id_entry)
-        self.name_entry = TextInput(text="Name", pos_hint={'x': 0, 'y': .3}, size_hint=(.8, .1))
+        self.name_entry = TextInput(hint_text="Name", pos_hint={'x': 0, 'y': .3}, size_hint=(.6, .15))
         self.content.add_widget(self.name_entry)
         
         # add save button
-        self.save_button = Button(text="Save", on_press=self.save_setup, pos_hint={'x': 0, 'y': 0}, size_hint=(.4, .1))
+        self.save_button = Button(text="Save", background_normal="", background_color=(0,0,.7,1), on_press=self.save_setup, pos_hint={'x': 0, 'y': 0}, size_hint=(.4, .2))
         self.content.add_widget(self.save_button)
         
     def close_setupwindow(self, event):
@@ -168,8 +191,6 @@ class DeviceSetupWindow(Popup):
         self.caller.device_name = self.name_entry.text
         self.caller.is_setup = True
         
-        print("closing setup window")
-        
         # close setup window
         #self.parent.remove_widget(self)
         self.dismiss()
@@ -184,7 +205,7 @@ class MainWindow(TabbedPanel):
         self.default_tab = self.therm_tab
         
         self.add_widget(self.therm_tab)
-
+        
         self.device_tab = DeviceTab()
         self.add_widget(self.device_tab)
 

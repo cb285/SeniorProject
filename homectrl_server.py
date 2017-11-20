@@ -1,9 +1,9 @@
-#! /usr/bin/python2
+#!/usr/bin/env python
 
 import sys
 import os
 import sqlite3
-from xbee import XBee
+from xbee import XBee, ZigBee
 import serial
 import time
 import logging
@@ -54,7 +54,7 @@ def serialConnect():
     # setup serial connection
     ser = serial.Serial()
     ser.port = "/dev/ttyS0"
-    ser.baudrate = 9600
+    ser.baudrate = 115200
     ser.timeout = 10
     ser.write_timeout = 10
     ser.exclusive = True
@@ -101,14 +101,24 @@ def main(args):
     ser = serialConnect()
     
     # connect to xbee module
-    xbee = XBee(ser) #, callback=xbee_rx_handler)
+    xbee = ZigBee(ser) #, callback=xbee_rx_handler)
     
     log("connected to xbee at " + ser.port)
     
     xbee.at(frame_id='A', command='MY')
-    
     reply = xbee.wait_read_frame()
-    log("local xbee MY: " + str(reply))
+    log("local xbee resp: " + str(reply))
+    
+    while(True):
+        xbee.remote_at(dest_addr_long=device_addrs['outlet'],command='D0',parameter='\x04')
+        time.sleep(1)
+        xbee.remote_at(dest_addr_long=device_addrs['outlet'],command='D0',parameter='\x05')
+        time.sleep(1)
+        
+    reply = xbee.wait_read_frame()
+    log("remote xbee resp: " + str(reply))
+    
+    return
     
     # http://localhost:5000/?cmd=set&name=testname&to=off
     
