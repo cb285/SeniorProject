@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
+import sys
 import time
+import requests
 
 from kivy.app import App
 from kivy.uix.widget import Widget
@@ -17,6 +19,7 @@ from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.properties import *
 
+SERVER_URL = "http://localhost:5000/"
 TIME_FORMAT = "%A %m-%d %I:%M %p"
 
 class ThermTab(TabbedPanelItem):
@@ -120,7 +123,7 @@ class DeviceTile(FloatLayout):
         self.setup_window.open()
         #self.add_widget(self.setup_window)
         
-    def setup_tile(self, event):        
+    def setup_tile(self, event):
         if(not self.is_setup):
             self.parent.remove_widget(self)
             return
@@ -134,10 +137,47 @@ class DeviceTile(FloatLayout):
         self.close_button = Button(background_normal = '', background_color=(1,0,0,1), text="x", font_size=26, pos_hint={'x': 0.9, 'y': 0.9}, size_hint=(.1, .1), on_press=self.close_tile)
         self.add_widget(self.close_button)
         
+        payload = {'cmd':'add', 'id': self.device_id, 'name': self.device_name, 'type': self.device_type}
+        r = requests.get(SERVER_URL, params=payload)
+        
+        payload = {'cmd':'get', 'name': self.device_name}
+        r = requests.get(SERVER_URL, params=payload)
+        if (r.text == "on"):
+           self.current_state = "on"
+           self.switch.active = True
+        else:
+            self.current_state = "off"
+            self.switch.active = False
+
+        # schedule status update
+        Clock.schedule_interval(self.update_status, 3)
+
+    def update_status(self, event):
+        payload = {'cmd':'get', 'name': self.device_name}
+        r = requests.get(SERVER_URL, params=payload)
+        print(r.url)
+        if (r.text == "on"):
+           self.current_state = "on"
+           self.switch.active = True
+        else:
+            self.current_state = "off"
+            self.switch.active = False
+        
     def toggle(self, event):
-        pass
+        if(self.current_state == "off"):
+            self.current_state == "on"
+        else:
+            self.current_state = "off"
+        
+        payload = {'cmd':'set', 'name': self.device_name, 'to': self.current_state}
+        r = requests.get(SERVER_URL, params=payload)
         
     def close_tile(self, event):
+        # send remove command to server
+        payload = {'cmd':'remove', 'name':self.device_name}
+        r = requests.get(SERVER_URL, params=payload)
+        
+        # delete tile widget
         self.parent.remove_widget(self)
         
 class DeviceSetupWindow(Popup):
@@ -210,11 +250,22 @@ class MainWindow(TabbedPanel):
         self.add_widget(self.device_tab)
 
 class TestApp(App):
-
+    
     title = "Control Panel"
     
     def build(self):
         return MainWindow()
 
-if __name__ == '__main__':
+def main(args):
+    # test connection to server
+    payload = {'cmd':'test'}
+    r = requests.get(SERVER_URL, params=payload)
+    
+    if (r.text != "OK"):
+        print("ERROR: could not connect to server")
+        return
+    
     TestApp().run()
+    
+if (__name__ == "__main__"):
+    main(sys.argv)

@@ -49,7 +49,8 @@ def log(str):
     logging.debug(printstr)
     print(printstr)
 
-def main(args):    
+def main(args):
+
     logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG) # setup logging
     
     if not (os.path.isfile(DB_FILENAME)): # check if need to create db file
@@ -79,17 +80,22 @@ def main(args):
     log("local xbee: " + str(reply))
     
     # example request: http://localhost:5000/?cmd=set&name=testname&to=off
+    # valid commands: get, set, add, remove
     
-    # setup http GET request handler
+    # setup http GET/POST request handler
     app = Flask(__name__)
-    @app.route('/',methods=['GET'])
+    @app.route('/',methods=['GET', 'POST'])
     def get_handler():
         params = request.args
         
         log("GET request: " + str(params))
         
         command = params["cmd"]
-        
+
+        # test/ping
+        if (command == "test" or command == "ping"):
+            log("test/ping received")
+            return("OK")
         # check if in db and get ID
         if (command == "set" or command == "get"):
             if ("name" in params.keys()):
