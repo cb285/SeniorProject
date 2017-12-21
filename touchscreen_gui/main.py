@@ -148,14 +148,13 @@ class DeviceTile(FloatLayout):
         else:
             self.current_state = "off"
             self.switch.active = False
-
+            
         # schedule status update
         Clock.schedule_interval(self.update_status, 3)
 
     def update_status(self, event):
         payload = {'cmd':'get', 'name': self.device_name}
         r = requests.get(SERVER_URL, params=payload)
-        print(r.url)
         if (r.text == "on"):
            self.current_state = "on"
            self.switch.active = True
@@ -176,6 +175,9 @@ class DeviceTile(FloatLayout):
         # send remove command to server
         payload = {'cmd':'remove', 'name':self.device_name}
         r = requests.get(SERVER_URL, params=payload)
+
+        # stop status updater
+        Clock.unschedule(self.update_status)
         
         # delete tile widget
         self.parent.remove_widget(self)

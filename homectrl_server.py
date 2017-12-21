@@ -64,7 +64,7 @@ def main(args):
         log("devices:\n" + str(device_dict))
     
     # add xbee module addresses (temporary)
-    device_db['test'] = ("0x0013A20041553731", "outlet")
+    device_db['test'] = ("0x0013A20041553731", "outlet", "off")
     write_db(device_db)
     
     # open serial port to xbee module
@@ -91,70 +91,90 @@ def main(args):
         log("GET request: " + str(params))
         
         command = params["cmd"]
-
+        
         # test/ping
-        if (command == "test" or command == "ping"):
+        if (command in ["test", "ping"]):
             log("test/ping received")
             return("OK")
         # check if in db and get ID
-        if (command == "set" or command == "get"):
+        if (command in ["set", "get", "toggle"]):
             if ("name" in params.keys()):
                 if (params["name"] in device_db.keys()):
                     device_id = id2xbee(device_db[params["name"]][0])
+                    device_name = params["name"]
                 else:
-                    log("invalid device name")
-                    return ("invalid device name")
+                    log("error:invalid device name")
+                    return ("error:invalid device name")
             else:
-                log("must specify device name")
-                return("must specify device name")
+                log("error:must specify device name")
+                return("error:must specify device name")
         
         # set status
         if (command == "set"):
             # get requested setting
             set_to = params["to"]
-            device_name = params["name"]
             
             # turn on
             if (set_to == "on"):
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x05') # set pin 0 to high
-                log("turned \"" + device_name + "\" off")
+                log("turned \"" + device_name + "\" on")
+                device_db[device_id][2] = "on"
+                write_db(device_db)
                 return("OK")
             
             # turn off
             elif (set_to == "off"):
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x04') # set pin 0 to low
                 log("turned \"" + device_name + "\" off")
+                device_db[device_id][2] = "off"
+                write_db(device_db)
                 return("OK")
             
             # unknown command
             else:
-                log("invalid set command")
-                return ("INVALID COMMAND")
+                log("error:invalid set command")
+                return ("error:invalid set command")
+        
+        # toggle state
+        elif(command == "toggle"):
+            if(device_db[device_name][2] == "on"):
+                xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x04') # set pin 0 to low
+                log("toggled \"" + device_name + "\" to off")
+                device_db[device_id][2] = "off"
+                write_db(device_db)
+                return("OK")
+            else:
+                xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x05') # set pin 0 to high
+                log("toggled \"" + device_name + "\" to on")
+                device_db[device_id][2] = "on"
+                write_db(device_db)
+                return("OK")
         
         # get status
         elif (cmd == "get"):
-            pass
-            """
-            log("getting " + device_name + " status")
-            xb.remote_at(command='IS', frame_id='C')
-            """
+            if (device_name in device_db.keys()):
+                log("status of \"" + device_name + "\" is " + device_db[device_name][2])
+                return(device_db[device_name][2])
+            else:
+                log("error:get failed, device not in DB")
+                return("error:get failed, device not in DB")
         
         # get list of devices
         elif (cmd == "devices"):
-            log(str(device_db))
+            log("devices:\n" + str(device_db))
             return(str(device_db))
         
         # add a device
         elif cmd == "add":
             if("id" in params.keys() and "name" in params.keys() and "type" in params.keys()):
                 # add to dict
-                device_db[params["name"]] = (params["id"], params["type"])
+                device_db[params["name"]] = (params["id"], params["type"], "off")
                 # save to file
                 write_db(device_db)
-                
+                return("OK")
             else:
-                log("must specify name, id, and type")
-                return("must specify name, id, and type")
+                log("error:must specify name, id, and type")
+                return("error:must specify name, id, and type")
 
         # remove a device
         elif cmd == "remove":
@@ -167,15 +187,16 @@ def main(args):
                     log("removed device \"" + params["name"] + "\" from db")
                     return("removed device \"" + params["name"] + "\" from db")
                 else:
-                    return("not in db, cannot remove")
+                    log("error:not in db, cannot remove")
+                    return("error:not in db, cannot remove")
             else:
-                log("name must be specified")
-                return("name must be specified")
-
+                log("error:name must be specified")
+                return("error:name must be specified")
+            
         # invalid
         else:
-            log("invalid command")
-            return("invalid command")
+            log("error:invalid command")
+            return("error:invalid command")
         
     # start http GET request handler
     app.run(host='0.0.0.0', port=5000)
