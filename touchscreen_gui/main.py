@@ -261,13 +261,18 @@ class TestApp(App):
 def main(args):
     # test connection to server
     payload = {'cmd':'test'}
-    r = requests.get(SERVER_URL, params=payload)
-    
-    if (r.text != "OK"):
+
+    try:
+        r = requests.get(SERVER_URL, params=payload)
+    except requests.exceptions.ConnectionError:
         print("ERROR: could not connect to server")
         return
     
-    TestApp().run()
-    
+    if (r.text == "OK"):
+        TestApp().run()
+    else:
+        print("ERROR: could not connect to server")
+        return
+        
 if (__name__ == "__main__"):
     main(sys.argv)
