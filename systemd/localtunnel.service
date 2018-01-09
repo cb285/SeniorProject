@@ -1,0 +1,13 @@
+[Unit]
+Description=localtunnel
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/lt --port 5000 --subdomain clayton
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=on-failure
+Type=simple
+
+[Install]
+WantedBy=multi-user.target

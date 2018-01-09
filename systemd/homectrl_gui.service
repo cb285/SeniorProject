@@ -1,0 +1,13 @@
+[Unit]
+Description=homectrl_gui
+After=network.target localtunnel.service homectrl_server.service
+
+[Service]
+ExecStart=/opt/homectrl/gui/gui_main.py
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=on-failure
+Type=simple
+
+[Install]
+WantedBy=multi-user.target
