@@ -185,6 +185,7 @@ class DeviceTile(FloatLayout):
 class DeviceSetupWindow(Popup):
     def __init__(self,caller,**kwargs):
         super(DeviceSetupWindow,self).__init__(**kwargs)
+
         self.caller = caller
         self.content = FloatLayout()
         
@@ -259,9 +260,10 @@ class TestApp(App):
         return MainWindow()
 
 def main(args):
+    """
     # test connection to server
     payload = {'cmd':'test'}
-
+    
     try:
         r = requests.get(SERVER_URL, params=payload)
     except requests.exceptions.ConnectionError:
@@ -273,6 +275,8 @@ def main(args):
     else:
         print("ERROR: could not connect to server")
         return
-        
+    """
+    TestApp().run()
+ 
 if (__name__ == "__main__"):
     main(sys.argv)

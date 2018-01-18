@@ -55,13 +55,13 @@ def main(args):
     
     if not (os.path.isfile(DB_FILENAME)): # check if need to create db file
         log(DB_FILENAME + " doesn't exist, creating it.")
-        device_dict = dict()
+        device_db = dict()
         with open(DB_FILENAME, 'w') as f:
-            json.dump(device_dict, f)
+            json.dump(device_db, f)
     else:
-        device_dict = read_db() # open existing file
+        device_db = read_db() # open existing file
         log("opened existing db " + DB_FILENAME)
-        log("devices:\n" + str(device_dict))
+        log("devices:\n" + str(device_db))
     
     # add xbee module addresses (temporary)
     device_db['test'] = ("0x0013A20041553731", "outlet", "off")
