@@ -19,7 +19,8 @@ from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.properties import *
 
-SERVER_URL = "http://localhost:5000/"
+SERVER_URL = "https://clayton039.localtunnel.me"
+#SERVER_URL = "http://localhost:5000/"
 TIME_FORMAT = "%A %m-%d %I:%M %p"
 
 class ThermTab(TabbedPanelItem):

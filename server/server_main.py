@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import os
@@ -35,7 +35,7 @@ def id2xbee(a):
 def serialConnect():
     # setup serial connection
     ser = serial.Serial()
-    ser.port = "/dev/ttyS0"
+    ser.port = "/dev/ttyAMA0"
     ser.baudrate = 115200
     ser.timeout = 10
     ser.write_timeout = 10
@@ -102,6 +102,7 @@ def main(args):
                 if (params["name"] in device_db.keys()):
                     device_id = id2xbee(device_db[params["name"]][0])
                     device_name = params["name"]
+                    print(device_id)
                 else:
                     log("error:invalid device name")
                     return ("error:invalid device name")
@@ -118,7 +119,7 @@ def main(args):
             if (set_to == "on"):
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x05') # set pin 0 to high
                 log("turned \"" + device_name + "\" on")
-                device_db[device_id][2] = "on"
+                device_db[device_name][2] = "on"
                 write_db(device_db)
                 return("OK")
             
@@ -126,7 +127,7 @@ def main(args):
             elif (set_to == "off"):
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x04') # set pin 0 to low
                 log("turned \"" + device_name + "\" off")
-                device_db[device_id][2] = "off"
+                device_db[device_name][2] = "off"
                 write_db(device_db)
                 return("OK")
             
@@ -140,13 +141,13 @@ def main(args):
             if(device_db[device_name][2] == "on"):
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x04') # set pin 0 to low
                 log("toggled \"" + device_name + "\" to off")
-                device_db[device_id][2] = "off"
+                device_db[device_name][2] = "off"
                 write_db(device_db)
                 return("OK")
             else:
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x05') # set pin 0 to high
                 log("toggled \"" + device_name + "\" to on")
-                device_db[device_id][2] = "on"
+                device_db[device_name][2] = "on"
                 write_db(device_db)
                 return("OK")
         
