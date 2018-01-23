@@ -64,7 +64,7 @@ def main(args):
         log("devices:\n" + str(device_db))
     
     # add xbee module addresses (temporary)
-    device_db['test'] = ("0x0013A20041553731", "outlet", "off")
+    device_db['test'] = ("0x0013A20041553731", "testname", "off")
     write_db(device_db)
     
     # open serial port to xbee module
