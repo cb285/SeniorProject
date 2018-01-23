@@ -76,8 +76,8 @@ def main(args):
     log("connected to xbee at " + ser.port)
     
     xbee.at(frame_id='A', command='MY')
-    reply = xbee.wait_read_frame()
-    log("local xbee: " + str(reply))
+    #reply = xbee.wait_read_frame()
+    #log("local xbee: " + str(reply))
     
     # example request: http://localhost:5000/?cmd=set&name=testname&to=off
     # valid commands: get, set, add, remove
