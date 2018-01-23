@@ -27,10 +27,11 @@ def write_db(device_dict):
         json.dump(device_dict, f)
 
 # Function: id2xbee
-# converts xbee device ID of form "0x0013A20041553731" to "\x00\x13\xA2\x00\x41\x55\x37\x31" (usable by xbee API)
+# converts xbee device ID of form "0x0013A20041553731" to address usable by xbee API
 def id2xbee(a):
-    b = a.split("x")[1] # remove "0x" part
-    return('\\x' + '\\x'.join(i+j for i,j in zip(b[::2], b[1::2]))) # insert "\x" before each byte
+    return bytes(bytearray.fromhex(a))
+    #b = a.split("x")[1] # remove "0x" part
+    #return('\\x' + '\\x'.join(i+j for i,j in zip(b[::2], b[1::2]))) # insert "\x" before each byte
 
 def serialConnect():
     # setup serial connection
@@ -64,7 +65,7 @@ def main(args):
         log("devices:\n" + str(device_db))
     
     # add xbee module addresses (temporary)
-    device_db['test'] = ("0x0013A20041553731", "testname", "off")
+    device_db['testname'] = ("0013A20041553731", "off")
     write_db(device_db)
     
     # open serial port to xbee module
@@ -119,7 +120,7 @@ def main(args):
             if (set_to == "on"):
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x05') # set pin 0 to high
                 log("turned \"" + device_name + "\" on")
-                device_db[device_name][2] = "on"
+                device_db[device_name] = (device_id, "on")
                 write_db(device_db)
                 return("OK")
             
@@ -127,7 +128,7 @@ def main(args):
             elif (set_to == "off"):
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x04') # set pin 0 to low
                 log("turned \"" + device_name + "\" off")
-                device_db[device_name][2] = "off"
+                device_db[device_name] = (device_id, "off")
                 write_db(device_db)
                 return("OK")
             
@@ -141,21 +142,21 @@ def main(args):
             if(device_db[device_name][2] == "on"):
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x04') # set pin 0 to low
                 log("toggled \"" + device_name + "\" to off")
-                device_db[device_name][2] = "off"
+                device_db[device_name] = (device_id, "off")
                 write_db(device_db)
                 return("OK")
             else:
                 xbee.remote_at(dest_addr_long=device_id, command='D0', parameter='\x05') # set pin 0 to high
                 log("toggled \"" + device_name + "\" to on")
-                device_db[device_name][2] = "on"
+                device_db[device_name] = (device_id, "on")
                 write_db(device_db)
                 return("OK")
         
         # get status
         elif (cmd == "get"):
             if (device_name in device_db.keys()):
-                log("status of \"" + device_name + "\" is " + device_db[device_name][2])
-                return(device_db[device_name][2])
+                log("status of \"" + device_name + "\" is " + device_db[device_name][1])
+                return(device_db[device_name][1])
             else:
                 log("error:get failed, device not in DB")
                 return("error:get failed, device not in DB")
