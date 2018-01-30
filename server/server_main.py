@@ -40,10 +40,10 @@ def id2xbee(a):
 def xbeeConnect():
     # setup serial connection
     ser = serial.Serial()
-    ser.port = "/dev/ttyAMA0"
+    ser.port = "/dev/ttyS0"
     ser.baudrate = 9600
-    ser.timeout = 10
-    ser.write_timeout = 10
+    ser.timeout = 3
+    ser.write_timeout = 3
     ser.exclusive = True
     ser.open()
     log("connected to xbee at " + ser.port)
@@ -77,7 +77,7 @@ def main(args):
     xbee = xbeeConnect()
     
     xbee.at(frame_id='A', command='MY')
-    
+	
     #reply = xbee.wait_read_frame()
     #log("local xbee: " + str(reply))
     
