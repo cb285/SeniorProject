@@ -74,7 +74,7 @@ def main(args):
     write_db(device_db)
     
     # connect to xbee module
-    xbee = ZigBeeConnect()
+    xbee = xbeeConnect()
     
     xbee.at(frame_id='A', command='MY')
     
