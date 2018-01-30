@@ -35,18 +35,19 @@ def write_db(device_dict):
 # Function: id2xbee
 # converts xbee device ID of form "0013A20041553731" to address usable by xbee API
 def id2xbee(a):
-    return bytearray.fromhex(addr_str)
+    return bytearray.fromhex(a)
 
-def serialConnect():
+def xbeeConnect():
     # setup serial connection
     ser = serial.Serial()
     ser.port = "/dev/ttyAMA0"
-    ser.baudrate = 115200
+    ser.baudrate = 9600
     ser.timeout = 10
     ser.write_timeout = 10
     ser.exclusive = True
-    ser.open()    
-    return ser
+    ser.open()
+    log("connected to xbee at " + ser.port)
+    return ZigBee(ser, escaped=True)
 
 def log(str):
     TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -72,13 +73,8 @@ def main(args):
     device_db['testname'] = ("0013A20041553731", "off")
     write_db(device_db)
     
-    # open serial port to xbee module
-    ser = serialConnect()
-    
     # connect to xbee module
-    xbee = ZigBee(ser) #, callback=xbee_rx_handler)
-    
-    log("connected to xbee at " + ser.port)
+    xbee = ZigBeeConnect()
     
     xbee.at(frame_id='A', command='MY')
     
