@@ -15,6 +15,11 @@ import codecs
 DB_FILENAME = "homectrldb.json" # path to DB file
 LOG_FILENAME = "homectrl_server.log" # log filename
 
+# define XBee DIO constants
+XBEE_DIO_PIN = 'D0'
+XBEE_DIO_HIGH = b'\x05'
+XBEE_DIO_LOW = b'\x04'
+
 # Function: createDB
 # open existing json device file
 def read_db():
@@ -28,9 +33,9 @@ def write_db(device_dict):
         json.dump(device_dict, f)
 
 # Function: id2xbee
-# converts xbee device ID of form "0x0013A20041553731" to address usable by xbee API
+# converts xbee device ID of form "0013A20041553731" to address usable by xbee API
 def id2xbee(a):
-    return bytes(codecs.decode(a, "hex-codec"))
+    return bytearray.fromhex(addr_str)
 
 def serialConnect():
     # setup serial connection
@@ -76,6 +81,7 @@ def main(args):
     log("connected to xbee at " + ser.port)
     
     xbee.at(frame_id='A', command='MY')
+    
     #reply = xbee.wait_read_frame()
     #log("local xbee: " + str(reply))
     
@@ -117,7 +123,7 @@ def main(args):
             
             # turn on
             if (set_to == "on"):
-                xbee.remote_at(dest_addr_long=id2xbee(device_id), command='D0', parameter='\x05') # set pin 0 to high
+                xbee.remote_at(dest_addr_long=id2xbee(device_id), command=XBEE_DIO_PIN, parameter=XBEE_DIO_HIGH) # set pin 0 to high
                 log("turned \"" + device_name + "\" on")
                 device_db[device_name] = (device_id, "on")
                 write_db(device_db)
@@ -125,7 +131,7 @@ def main(args):
             
             # turn off
             elif (set_to == "off"):
-                xbee.remote_at(dest_addr_long=id2xbee(device_id), command='D0', parameter='\x04') # set pin 0 to low
+                xbee.remote_at(dest_addr_long=id2xbee(device_id), command=XBEE_DIO_PIN, parameter=XBEE_DIO_LOW) # set pin 0 to low
                 log("turned \"" + device_name + "\" off")
                 device_db[device_name] = (device_id, "off")
                 write_db(device_db)
@@ -139,13 +145,13 @@ def main(args):
         # toggle state
         elif(command == "toggle"):
             if(device_db[device_name][2] == "on"):
-                xbee.remote_at(dest_addr_long=id2xbee(device_id), command='D0', parameter='\x04') # set pin 0 to low
+                xbee.remote_at(dest_addr_long=id2xbee(device_id), command=XBEE_DIO_PIN, parameter=XBEE_DIO_LOW) # set pin 0 to low
                 log("toggled \"" + device_name + "\" to off")
                 device_db[device_name] = (device_id, "off")
                 write_db(device_db)
                 return("OK")
             else:
-                xbee.remote_at(dest_addr_long=id2xbee(device_id), command='D0', parameter='\x05') # set pin 0 to high
+                xbee.remote_at(dest_addr_long=id2xbee(device_id), command=XBEE_DIO_PIN, parameter=XBEE_DIO_HIGH) # set pin 0 to high
                 log("toggled \"" + device_name + "\" to on")
                 device_db[device_name] = (device_id, "on")
                 write_db(device_db)
