@@ -47,7 +47,10 @@ def xbeeConnect():
     ser.exclusive = True
     ser.open()
     log("connected to xbee at " + ser.port)
-    return ZigBee(ser, escaped=True)
+    return ZigBee(ser, escaped=True, callback=print_data)
+
+def print_data(data):
+	print ("xbee " + str(data['source_addr_long']) + " changed to " + str(data['samples'][0]['dio-1']))
 
 def log(str):
     TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -77,7 +80,15 @@ def main(args):
     xbee = xbeeConnect()
     
     xbee.at(frame_id='A', command='MY')
-	
+    
+    # set DIO1 to input
+    xbee.remote_at(dest_addr_long=id2xbee(device_db['testname'][0]), command='D1', parameter='\x03')
+    # turn on DUI1 pull up resistor (30kOhm)
+    xbee.remote_at(dest_addr_long=id2xbee(device_db['testname'][0]), command='PR', parameter='\x08')
+    # set up change detection for DIO1
+    xbee.remote_at(dest_addr_long=id2xbee(device_db['testname'][0]), command='IC', parameter=b'\x02')
+    print("here")
+
     #reply = xbee.wait_read_frame()
     #log("local xbee: " + str(reply))
     
