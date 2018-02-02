@@ -8,10 +8,9 @@ import serial
 import time
 import logging
 from flask import Flask, request
-from threading import Lock
+from threading import RLock
 
 #import RPi.GPIO as GPIO
-
 
 DB_FILENAME = "devices.json" # path to DB file
 LOG_FILENAME = "server.log" # log filename
@@ -25,7 +24,7 @@ XBEE_DIO_LOW = b'\x04'
 device_db = dict()
 
 # create lock for accessing xbee and device_db
-xbee_lock = Lock()
+xbee_lock = RLock()
 
 # Function: createDB
 # open existing json device file
@@ -61,7 +60,7 @@ def log(str):
     printstr = time.strftime(TIME_FORMAT) + ": " + str + "\n"
     logging.debug(printstr)
     print(printstr)
-
+    
 def set_xbee_dio(addr, pin, stat):
     if(stat == 'high'):
         param = XBEE_DIO_HIGH
@@ -92,36 +91,44 @@ def input_handler(data):
     # get source address
     source_addr = bytearray(data['source_addr_long'])
 
-    print("getting lock")
-    # aquire lock
-    with xbee_lock:
+    print("input_handler getting lock")
+    
+    # acquire lock
+    xbee_lock.acquire()
+    print("input_handler got the lock")
+    
+    # check if device is in the database
+    for device in device_db.values():
+        # if found a match
+        if(id2xbee(device['id']) == source_addr):
+            device_name = device['name']
+            device_id = device['id']
+            # if status was on, turn it off
+            if(device_db[device_name]['status'] == "on"):
+                set_xbee_dio(device_id, XBEE_OUTPUT_PIN, "low") # set pin 0 to low
+                # log
+                log("toggled \"" + device_name + "\" to off")
+                # update db
+                device_db[device_name]['status'] = "off"
+                write_db(device_db)
+                # release lock
+                xbee_lock.release()
+                return
+            # if status was off, turn it on
+            else:
+                set_xbee_dio(device_id, XBEE_OUTPUT_PIN, "high") # set pin 0 to high
+                # log
+                log("toggled \"" + device_name + "\" to on")
+                # update db
+                device_db[device_name]['status'] = "on"
+                write_db(device_db)
+                # release lock
+                xbee_lock.release()
+                return
+    
+    # release lock if no devices matched
+    xbee_lock.release()
 
-        print("got the lock")
-        # check if device is in the database
-        for device in device_db.values():
-            # if found a match
-            if(id2xbee(device['id']) == source_addr):
-                device_name = device['name']
-                device_id = device['id']
-                # if status was on, turn it off
-                if(device_db[device_name]['status'] == "on"):
-                    set_xbee_dio(device_id, XBEE_OUTPUT_PIN, "low") # set pin 0 to low
-                    # log
-                    log("toggled \"" + device_name + "\" to off")
-                    # update db
-                    device_db[device_name]['status'] = "off"
-                    write_db(device_db)
-                    return("OK")
-                # if status was off, turn it on
-                else:
-                    set_xbee_dio(device_id, XBEE_OUTPUT_PIN, "high") # set pin 0 to high
-                    # log
-                    log("toggled \"" + device_name + "\" to on")
-                    # update db
-                    device_db[device_name]['status'] = "on"
-                    write_db(device_db)
-                    return("OK")
-       
 def add_device(name, device_id, device_type, status):
     # get access to global db
     global device_db
@@ -148,22 +155,30 @@ def main(args):
     
     # add testing device
     add_device('testname', '0013A20041553731', 'off', 'outlet')
+
+    print("main getting lock")
+    # acquire lock
+    xbee_lock.acquire()
+    print("main got lock")
+        
+    # connect to xbee module
+    xbee = xbeeConnect()
     
-    # aquire lock
-    with xbee_lock:
-        
-        # connect to xbee module
-        xbee = xbeeConnect()
-        
-        xbee.at(frame_id='A', command='MY')
-        
-        # set DIO1 to input
-        test_addr = id2xbee(device_db['testname']['id'])
-        xbee.remote_at(dest_addr_long=test_addr, command='D1', parameter='\x03')
-        # turn on DUI1 pull up resistor (30kOhm)
-        xbee.remote_at(dest_addr_long=test_addr, command='PR', parameter='\x08')
-        # set up change detection for DIO1
-        xbee.remote_at(dest_addr_long=test_addr, command='IC', parameter=b'\x02')
+    xbee.at(frame_id='A', command='MY')
+    
+    # set DIO1 to input
+    test_addr = id2xbee(device_db['testname']['id'])
+    xbee.remote_at(dest_addr_long=test_addr, command='D1', parameter='\x03')
+    # turn on DUI1 pull up resistor (30kOhm)
+    xbee.remote_at(dest_addr_long=test_addr, command='PR', parameter='\x08')
+    # set up change detection for DIO1
+    xbee.remote_at(dest_addr_long=test_addr, command='IC', parameter=b'\x02')
+    # save configuration
+    xbee.remote_at(dest_addr_long=test_addr, command='WR');
+    
+    # release lock
+    xbee_lock.release()
+    print("main released lock")
     
     # example request: http://localhost:5000/?cmd=set&name=testname&to=off
     # valid commands: get, set, add, remove
@@ -177,10 +192,14 @@ def main(args):
         log("GET request: " + str(params))
         
         command = params["cmd"]
-
-        # get lock
-        with xbee_lock:
-            
+        
+        print("flask getting lock")
+        # acquire lock
+        xbee_lock.acquire()
+        
+        try:
+            print("flask got lock")
+        
             # test/ping
             if (command in ["test", "ping"]):
                 log("test/ping received")
@@ -254,8 +273,8 @@ def main(args):
                 else:
                     log("error:get failed, device not in DB")
                     return("error:get failed, device not in DB")
-            
-            # get list of devices
+                
+                # get list of devices
             elif (cmd == "devices"):
                 # log
                 log("devices:\n" + str(device_db))
@@ -274,7 +293,7 @@ def main(args):
                     log("error:must specify name, id, and type")
                     return("error:must specify name, id, and type")
                 
-            # remove a device
+                # remove a device
             elif cmd == "remove":
                 if("name" in params.keys()):
                     if(params["name"] in device_db.keys()):
@@ -296,6 +315,11 @@ def main(args):
                 log("error:invalid command")
                 return("error:invalid command")
         
+        finally:
+            # release lock
+            xbee_lock.release()
+            print("flask released lock")
+    
     # start http GET request handler
     app.run(host='0.0.0.0', port=5000)
 
