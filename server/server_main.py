@@ -90,7 +90,7 @@ def input_handler(data):
     
     # get source address
     source_addr = bytearray(data['source_addr_long'])
-
+    
     print("input_handler getting lock")
     
     # acquire lock
