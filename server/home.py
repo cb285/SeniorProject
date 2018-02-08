@@ -468,6 +468,49 @@ class Home():
         finally:
             self._lock.release()
 
+
+    """
+    Function: Change_device_name
+    given old name and new name, changes device name
+    returns True if successful, false otherwise
+    """
+    def Change_device_name(self, orig_name, new_name):
+        # get lock
+        self._lock.acquire()
+        
+        try:
+            # check if device with that name is in db
+            if(self.Name_in_db(orig_name)):
+
+                # check if new name already in db
+                if(self.Name_in_db(new_name)):
+                    self.Log("could not change name to \"" + new_name + "\", device with name already in db")
+                    return False
+                
+                # save device
+                saved_device = self._device_db[orig_name]
+                
+                # remove old device name from db
+                del(self._device_db[device_name])
+
+                # add new device name to db
+                self._device_db[new_name] = saved_device
+
+                # update db file
+                with open(DEVICE_DB_FILENAME, "w") as f:
+                    json.dump(self._device_db, f)
+
+                self.Log("changed device name \"" + orig_name + "\" to \"" + new_name)
+                return True
+
+            else:
+                self.Log("could not rename device called \"" + orig_name + "\" from the db, no device with that name exists")
+                return False
+
+        # release lock when done
+        finally:
+            self._lock.release()
+
     """
     Function: Recv_handler
     receives all packets from ZigBee modules (runs on separate thread)
@@ -527,51 +570,50 @@ class Home():
             self._lock.acquire()
 
             try:
-               # check if device in db (and get name)
-               device_name = self.Mac2name(source_mac)
-               if(device_name != ""):
-                  self.Log("status change for \"" + device_name + "\"")
+                # check if device in db (and get name)
+                device_name = self.Mac2name(source_mac)
+                if(device_name != ""):
+                   
+                    # get device type
+                    device_type = self._device_db[device_name]['type']
 
-                  # get device type
-                  device_type = self._device_db[device_name]['type']
+                    # if outlet
+                    if(device_type == "outlet"):
+                        # get pin status
+                        stat = data['samples'][0]['dio-1']
+                        
+                        curr_level = self.Get_device_level(device_name, silent=True)
+                       
+                        # update status in db
+                        if(stat):
+                           
+                            # check if no actual change
+                            if(curr_level == 100):
+                                return
+                           
+                            self._device_db[device_name]['level'] = 100
+                            self.Log("device called \"" + device_name + "\" level changed to 100")
+                        else:
+                            # check if no actual change
+                            if(curr_level == 0):
+                                return
 
-                  # if outlet
-                  if(device_type == "outlet"):
-                     # get pin status
-                     stat = data['samples'][0]['dio-1']
+                            self._device_db[device_name]['level'] = 0
+                            self.Log("device called \"" + + device_name + "\" level changed to 0")
 
-                     curr_level = self.Get_device_level(device_name, silent=True)
-
-                     # update status in db
-                     if(stat):
-
-                         # check if no actual change
-                         if(curr_level == 100):
-                             return
-                         
-                         self._device_db[device_name]['level'] = 100
-                         self.Log("device called \"" + device_name + "\" level changed to 100")
-                     else:
-                         # check if no actual change
-                         if(curr_level == 0):
-                             return
-                         
-                         self._device_db[device_name]['level'] = 0
-                         self.Log("device called \"" + "\"" + device_name + " level changed to 0")
-
-                     # record sample time
-                     self._device_db[device_name]['sample_time'] = time.time()
+                        # record sample time
+                        self._device_db[device_name]['sample_time'] = time.time()
                      
-                     # update db file
-                     with open(DEVICE_DB_FILENAME, "w") as f:
-                        json.dump(self._device_db, f)
+                        # update db file
+                        with open(DEVICE_DB_FILENAME, "w") as f:
+                            json.dump(self._device_db, f)
 
-                  else:
-                      raise ValueError("device type \"" + device_type + "\" sampling not supported")
+                    else:
+                        raise ValueError("device type \"" + device_type + "\" sampling not supported")
 
                 # if device not in db
-               else:
-                   self.Log("received packet from device not in db")
+                else:
+                    self.Log("received packet from device not in db")
 
             # release lock when done
             finally:
@@ -627,7 +669,13 @@ class Home():
         task_command = params["task_command"]
         task_type = params['task_type']
         task_id = params["task_id"]
-        
+
+        # create copy of params to pass to run_command function
+        run_params = params
+
+        # re define command to task command
+        run_params["command"] = task_command
+
         # if interval type
         if(task_type == "interval"):
             if("year" in params):
@@ -644,7 +692,7 @@ class Home():
                 second  = int(params["second"])
 
             # add job
-            self._sched.add_job(self._task_function, trigger='interval', years=year, months=month, days=day, hours=hour, minutes=minute, seconds=second, args=[task_command], id=task_id, replace_existing=True)
+            self._sched.add_job(self._task_function, trigger='interval', years=year, months=month, days=day, hours=hour, minutes=minute, seconds=second, args=[run_params], id=task_id, replace_existing=True)
 
         # if repeating type
         elif(task_type == "cron"):
@@ -670,7 +718,7 @@ class Home():
                 second = int(params["second"])
 
             # add job
-            self._sched.add_job(self._task_function, trigger='cron', year=year, month=month, day=day, hour=hour, minute=minute, second=second, args=[task_command], id=task_id, replace_existing=True)
+            self._sched.add_job(self._task_function, trigger='cron', year=year, month=month, day=day, hour=hour, minute=minute, second=second, args=[run_params], id=task_id, replace_existing=True)
             
         # if single occurance type
         elif(task_type == "once"):
@@ -786,8 +834,34 @@ class Home():
             else:
                 return(device_name + ":remove:failed")
 
+        # change a device name
+        elif(command == "change_name"):
+
+            if("device_name" not in params or "new_name" not in params):
+                self.Log("change name failed, device_name or new_name not specified")
+                return("no_name:change_name:failed")
+
+            orig_name = params["device_name"]
+            new_name = params["new_name"]
+            
+            success = self.Change_device_name(orig_nam, new_name)
+
+            if(success):
+                return(device_name + ":change_name:ok")
+            else:
+                return(device_name + ":change_name:failed")
+
+        # add a task
+        elif(command == "add_task"):
+            success = self.Add_task(params)
+
+            if(success):
+                return(task_id + ":add_task:ok")
+            else:
+                return(task_id + ":add_task:failed")
+            
         else:
-            self.Log("recieved invalid command \"" + cmd + "\"")
+            self.Log("recieved invalid command")
             return("invalid command")
 
     """
