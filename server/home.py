@@ -10,23 +10,31 @@ import time
 from threading import RLock
 from apscheduler.schedulers.background import BackgroundScheduler
 
+
 DEVICE_DB_FILENAME = "devices.json"        # path to device db file
-TASKS_DB_FILENAME = "tasks.sqlite"         # path to task db file
+TASKS_DB_FILENAME = "sqlite:///tasks.db"   # path to task db file
 LOG_FILENAME = "server.log"                # log filename
 LOG_TIMESTAMP = "%Y-%m-%d %H:%M:%S"        # timestamp format for logging
 
 DIO_SIG_PERIOD = 0.05                      # period in seconds of square wave to trigger change
 
-SETUP_WAIT = 10                            # time in seconds to wait for samples to be received on server startup
+SETUP_WAIT = 5                             # time in seconds to wait for samples to be received on server startup
+DISCOVERY_INTERVAL = 5                     # time in minutes between network discovery packet sends
+DISCOVERY_TASKID = "_discovery_task"       # task id to use for network discovery task
 
-LEVEL_UNK = -1
+LEVEL_UNK = -1                             # device level used to mean level is unknown
 
 DEVICE_TYPES = ["outlet", "light", "auto"] # valid device types
 DIN_DEVICES = ["outlet", "light"]          # devices that require digital input detection
 DOUT_DEVICES = ["outlet"]                  # devices that require digital output (levels of 0, 100)
 
+DEFAULT_FRAME_ID = b'\x01'
+
+def test(data):
+    print("test got :" + data)
+
 class Home():
-    def __init__(self, callback_function):
+    def __init__(self, discover_function, task_function):
         # setup logging
         logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG)
         self.Log("starting server")
@@ -37,14 +45,18 @@ class Home():
         # setup task scheduler
         self._sched = BackgroundScheduler()
         self._sched.add_jobstore('sqlalchemy', url=TASKS_DB_FILENAME)
-        logging.getLogger('apscheduler').setLevel(logging.DEBUG)
-        
+        logging.getLogger('apscheduler') #.setLevel(logging.DEBUG)
+
+        # save task running function
+        self._task_function = task_function
+
         # create lock for xbee / db access
         self._lock = RLock()
-        
+
         # acquire lock
         self._lock.acquire()
-        
+        locked = True
+
         try:
             # setup connection to zigbee module
             ser = serial.Serial()
@@ -58,31 +70,49 @@ class Home():
             self._ser = ser
             
             self._zb = ZigBee(ser, escaped=True,
-                              callback=callback_function)
+                              callback=self.Recv_handler)
 
             # load/create db file
             if not (os.path.isfile(DEVICE_DB_FILENAME)):  # check if need to create db file
                 self.Log(DEVICE_DB_FILENAME + " file doesn't exist, creating it.")
-                self.device_db = dict()
+                self._device_db = dict()
                 with open(DEVICE_DB_FILENAME, 'w') as f:
-                    json.dump(self.device_db, f)
+                    json.dump(self._device_db, f)
             else:
                 with open(DEVICE_DB_FILENAME) as f:
-                    self.device_db = json.load(f)
+                    self._device_db = json.load(f)
                 self.Log("opened existing db " + DEVICE_DB_FILENAME)
 
             # sample all devices in db
-            self.Force_sample_all(release=False)
+            self.Force_sample_all()
+
+            # send discovery packet
+            self.Discover_devices()
             
-        # release lock when done
-        finally:
             # release lock
             self._lock.release()
+            locked = False
+
+            self.Log("sampling devices...")
             # sleep to allow samples to be processed
             time.sleep(SETUP_WAIT)
+            
             # start scheduler
             self._sched.start()
+            self.Log("started scheduler")
+
+            # add network discovery task (self.Discover_devices)
+            self._sched.add_job(discover_function, trigger='interval', minutes=DISCOVERY_INTERVAL, replace_existing=True, id=DISCOVERY_TASKID)
+
+            self.Log("jobs: " + str(self.Get_tasks()))
             
+            self.Log("server ready!")
+
+        # release lock when done
+        finally:
+            if(locked):
+                # release lock
+                self._lock.release()
 
     """
     Function: Mac2bytes
@@ -92,54 +122,93 @@ class Home():
     def Mac2bytes(self, mac):
         return bytearray.fromhex(mac)
 
-    def Force_sample_all(self, release=True):
+    def Force_sample_device(self, device_name):
 
         # get lock
         self._lock.acquire()
+
+        # check if device in db
+        if(not self.Name_in_db(device_name)):
+            self.Log("cannot force sample of device \"" + device_name + "\", no device with that name in db")
+            return False
+
         try:
-            # for each device in db
-            for device_name in device_db:
-                # force sample
-                self._zb.remote_at(dest_addr_long=self.Mac2bytes(device_db[device_name]['mac']), command='IS')
+            bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
+
+            # set DIO2 to output low
+            self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x04')
+            # set DIO2 to output high
+            self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x05')
+
+            self.Log("forced sample of device \"" + device_name + "\"")
+
+            return True
 
         # release lock when done
         finally:
-            if(release):
-                self._lock.release()
+            self._lock.release()
+
+    """ Function: Force_sample_all
+    requests input sample from all devices in db
+    """
+    def Force_sample_all(self):       
+        # get lock
+        self._lock.acquire()
+        
+        try:
+            # for each device in db
+            for device_name in self._device_db:
+
+                bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
+
+                # set DIO2 to output low
+                self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x04')
+                # set DIO2 to output high
+                self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x05')
+                
+        # release lock when done
+        finally:
+            self._lock.release()
     
     """
     Function: Get_device_level
     get current device level (polls device if sample is past TTL)
     returns the current level if successful, returns -1 if failed to get level
     """
-    def Get_device_level(self, device_name, release=True):
+    def Get_device_level(self, device_name, silent=True):
         # get lock
         self._lock.acquire()
-        
+
         try:
             # check if device with that name is in db
-            if(self.Name_in_db(device_name, release=False)):
+            if(self.Name_in_db(device_name)):
                 
                 # get device type
-                device_type = self.device_db[device_name]['type']
-                
+                device_type = self._device_db[device_name]['type']
+
                 # check if current sample is valid
-                if(self.device_db[device_name]['sample_time'] >= self._start_time):
+                if(self._device_db[device_name]['sample_time'] >= self._start_time):
                     # get level
-                    curr_level = self.device_db[device_name]['level']
+                    curr_level = self._device_db[device_name]['level']
+                    
+                    if(not silent):
+                        self.Log("current level of \"" + device_name + "\" is " + str(curr_level))
+
                     # return level
-                    self.Log("current level of \"" + device_name + "\" is " + str(curr_level))
                     return(curr_level)
                 
                 # if sample is not valid
                 else:
-                    self.Log("current level of \"" + device_name + "\" is unknown, check the device")
+                    # force sample of input
+                    self._zb.remote_at(dest_addr_long=self.Mac2bytes(self._device_db[device_name]['mac']), command='IS', frame=DEFAULT_FRAME_ID)
+
+                    if(not silent):
+                        self.Log("current level of \"" + device_name + "\" is unknown. trying to resample, please check if the device is turned on")
                     return LEVEL_UNK
-        
+
         # release lock when done
         finally:
-            if(release):
-                self._lock.release()
+            self._lock.release()
 
     """
     Function: Set_device_level
@@ -147,30 +216,32 @@ class Home():
     returns True if successful, False otherwise
 
     level is an integer in the range [0, 100] from off to on
-    
+
     valid levels for device types:
     outlet     : 0,  100 (off,  on)
     light      : 0 - 100 (off - on)
     thermostat : 0 - 100 (0 - 100 degrees fahrenheit)
     """
-    def Set_device_level(self, device_name, level, release=True):
+    def Set_device_level(self, device_name, level):
         # get lock
         self._lock.acquire()
+
         try:
             # check if level is valid
             if(0 <= level and level <= 100):
                 # check if device is in db
-                if(self.Name_in_db(device_name, release=False)):
+                if(self.Name_in_db(device_name)):
                     # get type
-                    device_type = self.device_db[device_name]['type']
+                    device_type = self._device_db[device_name]['type']
                     # get current level
-                    curr_level = self.Get_device_level(device_name, release=False)
+                    curr_level = self.Get_device_level(device_name)
                     # get mac addr
-                    bytes_mac = self.Mac2bytes(self.device_db[device_name]['mac'])
+                    bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
 
                     # if could not get current level
                     if(curr_level == LEVEL_UNK):
-                        self.Log("could not set \"" + device_name + "\" to " + level + ", could not get current level")
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command='IS', frame=DEFAULT_FRAME_ID)
+                        self.Log("could not set \"" + device_name + "\" to " + str(level) + ". current level is unknown. trying to resample. please check if device is on")
                         return False
 
                     # if a DOUT_DEVICE
@@ -185,10 +256,10 @@ class Home():
                                 # make output pin low
                                 self._zb.remote_at(dest_addr_long=bytes_mac, command='D0', parameter=b'\x04')
                                 # update db
-                                self.device_db[device_name]['level'] = level
-                                self.device_db[device_name]['sample_time'] = time.time()
+                                self._device_db[device_name]['level'] = level
+                                self._device_db[device_name]['sample_time'] = time.time()
                                 with open(DEVICE_DB_FILENAME, 'w') as f:
-                                    json.dump(self.device_db, f)
+                                    json.dump(self._device_db, f)
                                 self.Log("changed device \"" +
                                          device_name + "\" level to " + str(level))
                                 return True
@@ -204,22 +275,21 @@ class Home():
                 else:
                     self.Log("could not change level of device \"" + device_name + "\", device not in db")
                     return False
-        
+
         # release lock when done
         finally:
-            if(release):
-                self._lock.release()
+            self._lock.release()
 
     """
     Function: Name_in_db
     given device name
     returns true if device with that name is in db, false otherwise
     """
-    def Name_in_db(self, device_name, release=True):
+    def Name_in_db(self, device_name):
         # get lock
         self._lock.acquire()
         try:
-            for device in self.device_db:
+            for device in self._device_db:
                 if(device == device_name):
                     return True
                 
@@ -227,15 +297,14 @@ class Home():
         
         # release lock when done
         finally:
-            if(release):
-                self._lock.release()
-    
+            self._lock.release()
+
     """
     Function: Mac_in_db
     given device mac address (hex string or bytearray)
     returns true if device with that mac address is in db, false otherwise
     """
-    def Mac_in_db(self, device_mac, release=True):
+    def Mac_in_db(self, device_mac):
         # get lock
         self._lock.acquire()
         
@@ -246,30 +315,29 @@ class Home():
         
         try:
             if(byte_format):
-                for device in self.device_db:
-                    if(self.Mac2bytes(self.device_db[device]['mac']) == device_mac):
+                for device in self._device_db:
+                    if(self.Mac2bytes(self._device_db[device]['mac']) == device_mac):
                         return True
 
                 return False
 
             else:
-                for device in self.device_db:
-                    if(self.device_db[device]['mac'] == device_mac):
+                for device in self._device_db:
+                    if(self._device_db[device]['mac'] == device_mac):
                         return True
                     
                 return False
 
         # release lock when done
         finally:
-            if(release):
-                self._lock.release()
+            self._lock.release()
 
     """
     Function: Mac2name
     given device mac address (hex string or bytearray)
     returns name of device if in db, empty string ("") otherwise
     """
-    def Mac2name(self, device_mac, release=True):
+    def Mac2name(self, device_mac):
         # get lock
         self._lock.acquire()
 
@@ -280,35 +348,34 @@ class Home():
 
         try:
             if(byte_format):
-                for device in self.device_db:
-                    if(self.Mac2bytes(self.device_db[device]['mac']) == device_mac):
+                for device in self._device_db:
+                    if(self.Mac2bytes(self._device_db[device]['mac']) == device_mac):
                         return device
 
                 return ""
 
             else:
-                for device in self.device_db:
-                    if(self.device_db[device]['mac'] == device_mac):
+                for device in self._device_db:
+                    if(self._device_db[device]['mac'] == device_mac):
                         return device
 
                 return ""
 
         # release lock when done
         finally:
-            if(release):
-                self._lock.release()
+            self._lock.release()
 
     """
     Function: Add_device
     attempts to add a device to the db, returns True if successful, false otherwise
     """
-    def Add_device(self, device_name, device_mac, device_type, release=True):
+    def Add_device(self, device_name, device_mac, device_type):        
         # get lock
         self._lock.acquire()
-
+        
         try:
             # check if device with that name or mac is already in db
-            if(self.Name_in_db(device_name, release=False)):
+            if(self.Name_in_db(device_name)):
                 self.Log("there is already a device with name \"" + device_name + "\" in the db")
                 return False
             elif(self.Mac_in_db(device_mac)):
@@ -328,65 +395,67 @@ class Home():
                
                # set DIO1 to input
                self._zb.remote_at(dest_addr_long=bytes_mac, command='D1', parameter='\x03')
-               # set up change detection for DIO1
-               self._zb.remote_at(dest_addr_long=bytes_mac, command='IC', parameter=b'\x02')
-               
+               # set up change detection for DIO1 and DIO2
+               self._zb.remote_at(dest_addr_long=bytes_mac, command='IC', parameter=b'\x06') # was x02
+
+               # set DIO0 to output low
+               self._zb.remote_at(dest_addr_long=bytes_mac, command='D0', parameter='\x04')
+
                # force sample of input
-               self._zb.remote_at(dest_addr_long=bytes_mac, command='IS')
+               # set DIO2 to output low
+               self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x04')
+               # set DIO2 to output high
+               self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x05')
 
-            # if type is not auto
-            if(device_type != "auto"):
-                # write device type to node identifier
-                self._zb.remote_at(dest_addr_long=bytes_mac, command='D1', parameter='\x03')
+            # create node identifier
+            node_identifier = device_type + ":" + device_mac[12:]
 
-            # if type is auto
-            else:
-                # request node identifier string
-                self._zb.remote_at(dest_addr_long=self.Mac2bytes(device_db[device_name]['mac']), command='IS')
-            
+            # write node identifier to device
+            self._zb.remote_at(dest_addr_long=bytes_mac, command='NI', parameter=node_identifier)
+
             # apply changes
-            self._zb.remote_at(dest_addr_long=bytes_mac, command='AC');
+            self._zb.remote_at(dest_addr_long=bytes_mac, command='AC')
             # save configuration
-            self._zb.remote_at(dest_addr_long=bytes_mac, command='WR');
-            
+            self._zb.remote_at(dest_addr_long=bytes_mac, command='WR')
+
             # add to db dict
-            self.device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type, 'level':-1, 'sample_time':0}
-            
+            self._device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type, 'level':LEVEL_UNK, 'sample_time':0}
+
             # update db file
             with open(DEVICE_DB_FILENAME, "w") as f:
-               json.dump(self.device_db, f)
-            
-            self.Log("added device \"" + device_name + "\" of type \"" + device_type + " to db")
+               json.dump(self._device_db, f)
+
+            self.Log("added device \"" + device_name + "\" of type \"" + device_type + "\" to db")
+            self.Log("device identifer is set to \"" + node_identifier + "\"")
             return True
-        
+
         # release lock when done
         finally:
-            if(release):
-                self._lock.release()
+            self._lock.release()
 
     """
     Function: Remove_device
     attempts to remove a device from the db, returns True if successful, false otherwise
     """
-    def Remove_device(self, device_name, release=True):
+    def Remove_device(self, device_name):
         # get lock
         self._lock.acquire()
-
+        
         try:
             # check if device with that name or mac is already in db
-            if(self.Name_in_db(device_name, release=False)):
+            if(self.Name_in_db(device_name)):
 
                 # get mac from db
-                device_mac = self.device_db[device_name]['mac']
+                device_mac = self._device_db[device_name]['mac']
                 # get type from db
-                device_type = self.device_db[device_name]['type']
+                device_type = self._device_db[device_name]['type']
                 
                 # remove from db
-                del(self.device_db[device_name])
+                del(self._device_db[device_name])
                 
                 # update db file
                 with open(DEVICE_DB_FILENAME, "w") as f:
-                    json.dump(self.device_db, f)
+                    json.dump(self._device_db, f)
 
                 self.Log("removed device called \"" + device_name + "\" from the db")
                 return True
@@ -397,58 +466,105 @@ class Home():
 
         # release lock when done
         finally:
-            if(release):
-                self._lock.release()
+            self._lock.release()
 
     """
     Function: Recv_handler
     receives all packets from ZigBee modules (runs on separate thread)
     handles packets containing change detection samples
     """
-    def Recv_handler(self, data):
-        
-        self.Log("received zigbee packet:\n" + str(data))
+    def Recv_handler(self, data):        
 
+        #self.Log("received zigbee packet:\n" + str(data))
+        
         # if network discovery or node identification packet
-        
+        if("parameter" in data):
+            
+            discover_data = data["parameter"]
+            
+            if("node_identifier" in discover_data):
 
-        
+                # ignore if device already in db
+                device_mac = bytearray(discover_data['source_addr_long']).hex()
+                if(self.Mac2name(device_mac) != ""):
+                    return
+
+                # get node identifier
+                node_identifier = discover_data["node_identifier"].decode("utf-8")
+
+                # check if is a valid device
+                split_ident = node_identifier.split(":")
+
+                self.Log(str(split_ident))
+
+                # if node identifier has correct form
+                if(len(split_ident) == 2):             
+                    # get needed values
+                    device_type = split_ident[0]
+                    device_ident = split_ident[1]
+                    
+                    # attempt to add to db
+                    success = self.Add_device(node_identifier, device_mac, device_type)
+
+                    if(success):
+                        self.Log("discovered device with mac \"" + device_mac + "\" of type \"" + device_type + "\"")
+                        self.Log("device named \"" + node_identifier + "\", use change_name command to change it to a better name")
+                        return
+                    else:
+                        self.Log("failed to add discovered device to db")
+                        return
+
+                else:
+                    self.Log("couldn't add discovered device, node identifier not recognized")
+                    return
+
         # if io sample packet
-        if('samples' in data):
+        if("samples" in data):
             # get source address
             source_mac = bytearray(data['source_addr_long'])
 
             # get lock
             self._lock.acquire()
-            
+
             try:
                # check if device in db (and get name)
-               device_name = self.Mac2name(source_mac, release=False)
+               device_name = self.Mac2name(source_mac)
                if(device_name != ""):
-                  self.Log("status change for device called \"" + device_name + "\"")
+                  self.Log("status change for \"" + device_name + "\"")
 
                   # get device type
-                  device_type = self.device_db[device_name]['type']
+                  device_type = self._device_db[device_name]['type']
 
                   # if outlet
                   if(device_type == "outlet"):
                      # get pin status
                      stat = data['samples'][0]['dio-1']
 
+                     curr_level = self.Get_device_level(device_name, silent=True)
+
                      # update status in db
                      if(stat):
-                        self.device_db[device_name]['level'] = 100
-                        self.Log("device called \"" + "\"" + device_name + " level changed to 100")
+
+                         # check if no actual change
+                         if(curr_level == 100):
+                             return
+                         
+                         self._device_db[device_name]['level'] = 100
+                         self.Log("device called \"" + device_name + "\" level changed to 100")
                      else:
-                        self.device_db[device_name]['level'] = 0
-                        self.Log("device called \"" + "\"" + device_name + " level changed to 0")
-                        
+                         # check if no actual change
+                         if(curr_level == 0):
+                             return
+                         
+                         self._device_db[device_name]['level'] = 0
+                         self.Log("device called \"" + "\"" + device_name + " level changed to 0")
+
                      # record sample time
-                     self.device_db[device_name]['sample_time'] = time.time()
+                     self._device_db[device_name]['sample_time'] = time.time()
                      
                      # update db file
                      with open(DEVICE_DB_FILENAME, "w") as f:
-                        json.dump(self.device_db, f)
+                        json.dump(self._device_db, f)
 
                   else:
                       raise ValueError("device type \"" + device_type + "\" sampling not supported")
@@ -456,11 +572,28 @@ class Home():
                 # if device not in db
                else:
                    self.Log("received packet from device not in db")
-            
+
             # release lock when done
             finally:
                 self._lock.release()
 
+    """
+    Function: Discover_devices
+    sends network discovery command to local zigbee.
+    discovered devices are handled in Recv_handler
+    """
+    def Discover_devices(self):
+        self.Log("sending device discovery packet")
+
+        # get lock
+        self._lock.acquire()
+        
+        try:
+            # tell local zigbee to discover devices on network
+            self._zb.at(command='ND', frame=DEFAULT_FRAME_ID)
+
+        finally:
+            self._lock.release()
 
     """
     Function: Add_task
@@ -494,17 +627,50 @@ class Home():
         task_command = params["task_command"]
         task_type = params['task_type']
         task_id = params["task_id"]
-
-        # if repeating type
-        if(task_type == "repeating"):
-            cron_dict = dict()
-
-            for k in params:
-                if(k in ["year", "month", "day", "hour", "minute", "second"]):
-                    cron_dict[e] = int(params[k])
+        
+        # if interval type
+        if(task_type == "interval"):
+            if("year" in params):
+                year = int(params["year"])
+            if("month" in params):
+                month = params["month"]
+            if("day" in params):
+                day = params["day"]
+            if("hour" in params):
+                hour = int(params["hour"])
+            if("minute" in params):
+                minute  = int(params["minute"])
+            if("second" in params):
+                second  = int(params["second"])
 
             # add job
-            self._sched.add_job(self.Run_command, trigger='cron', cron_dict, args=[task_command], id=task_id, replace_existing=True)
+            self._sched.add_job(self._task_function, trigger='interval', years=year, months=month, days=day, hours=hour, minutes=minute, seconds=second, args=[task_command], id=task_id, replace_existing=True)
+
+        # if repeating type
+        elif(task_type == "cron"):
+
+            year = None
+            month = None
+            day = None
+            hour = None
+            minute = None
+            second = None
+
+            if("year" in params):
+                year = int(params["year"])
+            if("month" in params):
+                month = params["month"]
+            if("day" in params):
+                day = params["day"]
+            if("hour" in params):
+                hour = int(params["hour"])
+            if("minute" in params):
+                minute = int(params["minute"])
+            if("second" in params):
+                second = int(params["second"])
+
+            # add job
+            self._sched.add_job(self._task_function, trigger='cron', year=year, month=month, day=day, hour=hour, minute=minute, second=second, args=[task_command], id=task_id, replace_existing=True)
             
         # if single occurance type
         elif(task_type == "once"):
@@ -521,7 +687,7 @@ class Home():
             minute = int(params["minute"])
             second = int(params["second"])
 
-            self._sched.add_job(self.Run_command, trigger='date',
+            self._sched.add_job(self._task_function, trigger='date',
                               run_date=time.datetime(year, month, day, hour, minute, second),
                                 args=[task_command], id=task_id, replace_existing=True)
 
@@ -546,14 +712,16 @@ class Home():
     """
     def Run_command(self, params):
 
-        if(params["task_id"] != None):
-            self.Log("executing task \"" + params["task_id"] + "\"")
+        self.Log("running command: " + str(params))
         
-        # get command
+        #if("task_id" in params):
+            #self.Log("executing task \"" + params["task_id"] + "\"")
+
+        # get the command
         if("cmd" in params):
-            command = params['cmd']
+            command = params["cmd"]
         elif("command" in params):
-            command = params['commands']
+            command = params["commands"]
         else:
             command = "invalid"
 
@@ -561,18 +729,22 @@ class Home():
         if (command == "test"):
             self.Log("receieved test command")
             return("test:ok")
+
+        elif(command == "forcesample"):
+            self.Force_sample_all()
+            return("Forced sample")
         
         # set level
-        if (command == "set"):
+        elif (command == "set"):
             # get device name
             device_name = params['name']
             
             # get wanted device level
             level = params['level']
             
-            success = myhome.Set_device_level(device_name, int(level))
+            success = self.Set_device_level(device_name, int(level))
             
-            if(success):
+            if(not success):
                 return(device_name + ":set:unk")
             else:
                 return(device_name + ":set:" + str(level))
@@ -582,12 +754,12 @@ class Home():
             # get device name
             device_name = params['name']
             
-            curr_level = myhome.Get_device_level(device_name)
+            curr_level = self.Get_device_level(device_name)
 
             if(curr_level == LEVEL_UNK):
                 return(device_name + ":get:unk")
             else:
-                return(device_name + ":get:" + str(level))
+                return(device_name + ":get:" + str(curr_level))
         
         # add a device
         elif(command == "add"):
@@ -596,7 +768,7 @@ class Home():
             mac = params['mac']
             device_type = params['type']
             
-            success = myhome.Add_device(device_name, mac, device_type)
+            success = self.Add_device(device_name, mac, device_type)
             
             if(success):
                 return(device_name + ":add:ok")
@@ -607,7 +779,7 @@ class Home():
         elif(command == "remove"):
             device_name = params['name']
             
-            success = myhome.Remove_device(device_name)
+            success = self.Remove_device(device_name)
             
             if(success):
                 return(device_name + ":remove:ok")
