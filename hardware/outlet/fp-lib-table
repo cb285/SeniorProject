@@ -1,3 +1,0 @@
-(fp_lib_table
-  (lib (name outletPCB)(type KiCad)(uri "$(KIPRJMOD)/outletPCB.pretty")(options "")(descr ""))
-)
