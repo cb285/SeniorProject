@@ -10,7 +10,6 @@ import time
 from threading import RLock
 from apscheduler.schedulers.background import BackgroundScheduler
 
-
 DEVICE_DB_FILENAME = "devices.json"        # path to device db file
 TASKS_DB_FILENAME = "sqlite:///tasks.db"   # path to task db file
 LOG_FILENAME = "server.log"                # log filename
@@ -24,14 +23,50 @@ DISCOVERY_TASKID = "_discovery_task"       # task id to use for network discover
 
 LEVEL_UNK = -1                             # device level used to mean level is unknown
 
-DEVICE_TYPES = ["outlet", "light", "auto"] # valid device types
-DIN_DEVICES = ["outlet", "light"]          # devices that require digital input detection
-DOUT_DEVICES = ["outlet"]                  # devices that require digital output (levels of 0, 100)
+OUTLET_TYPE = "outlet"
+LIGHT_TYPE = "light"
+DEVICE_TYPES = [OUTLET_TYPE, LIGHT_TYPE]         # valid device types
 
 DEFAULT_FRAME_ID = b'\x01'
 
-def test(data):
-    print("test got :" + data)
+"""
+-----------------------------------
+           IO CONSTANTS
+-----------------------------------
+"""
+
+XB_CONF_HIGH = b'\x05'
+XB_CONF_LOW = b'\x04'
+XB_CONF_DINPUT = x'\x03'
+XB_CONF_ADC = b'\x02'
+
+XB_FORCE_SAMPLE_OUT = 'D10'
+XB_FORCE_SAMPLE_IN = 'D11'
+
+# relay toggle (toggles on a rising edge)
+RELAY_TOGGLE = 'D0'
+
+# relay control
+RELAY_STAT = 'D1'
+
+# number of DPOT positions
+DPOT_NUM_POS = 32
+# DPOT CS# pin
+DPOT_CS_N = 'D2'
+# DPOT U/D# pin
+DPOT_UD_N = 'D4'
+# D flip flop clear (clears CS#)
+DFLIPCLR_N = 'D5'
+
+# DPOT output pin
+DPOT_OUT = 'D3'
+
+"""
+-----------------------------------
+         END IO CONSTANTS
+-----------------------------------
+"""
+
 
 class Home():
     def __init__(self, discover_function, task_function):
@@ -135,10 +170,10 @@ class Home():
         try:
             bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
 
-            # set DIO2 to output low
-            self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x04')
-            # set DIO2 to output high
-            self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x05')
+            # set XB_FORCE_SAMPLE_OUT to high
+            self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_HIGH)
+            # set XB_FORCE_SAMPLE_OUT to low
+            self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_LOW)
 
             self.Log("forced sample of device \"" + device_name + "\"")
 
@@ -154,22 +189,22 @@ class Home():
     def Force_sample_all(self):       
         # get lock
         self._lock.acquire()
-        
+
         try:
             # for each device in db
             for device_name in self._device_db:
 
                 bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
 
-                # set DIO2 to output low
-                self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x04')
-                # set DIO2 to output high
-                self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x05')
-                
+                # set XB_FORCE_SAMPLE_OUT pin to high
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_LOW)
+                # set XB_FORCE_SAMPLE_OUT pin to low
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_HIGH)
+
         # release lock when done
         finally:
             self._lock.release()
-    
+
     """
     Function: Get_device_level
     get current device level (polls device if sample is past TTL)
@@ -182,7 +217,7 @@ class Home():
         try:
             # check if device with that name is in db
             if(self.Name_in_db(device_name)):
-                
+
                 # get device type
                 device_type = self._device_db[device_name]['type']
 
@@ -190,17 +225,17 @@ class Home():
                 if(self._device_db[device_name]['sample_time'] >= self._start_time):
                     # get level
                     curr_level = self._device_db[device_name]['level']
-                    
+
                     if(not silent):
                         self.Log("current level of \"" + device_name + "\" is " + str(curr_level))
 
                     # return level
                     return(curr_level)
-                
+
                 # if sample is not valid
                 else:
                     # force sample of input
-                    self._zb.remote_at(dest_addr_long=self.Mac2bytes(self._device_db[device_name]['mac']), command='IS', frame=DEFAULT_FRAME_ID)
+                    self.Force_sample_device(device_name)
 
                     if(not silent):
                         self.Log("current level of \"" + device_name + "\" is unknown. trying to resample, please check if the device is turned on")
@@ -228,53 +263,125 @@ class Home():
 
         try:
             # check if level is valid
-            if(0 <= level and level <= 100):
-                # check if device is in db
-                if(self.Name_in_db(device_name)):
-                    # get type
-                    device_type = self._device_db[device_name]['type']
-                    # get current level
-                    curr_level = self.Get_device_level(device_name)
-                    # get mac addr
-                    bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
+            if(not (0 <= level and level <= 100)):
+                self.Log("could not set level of \"" + device_name + "\" to " + str(level) + ", level is invalid")
+                return False
 
-                    # if could not get current level
-                    if(curr_level == LEVEL_UNK):
-                        self._zb.remote_at(dest_addr_long=bytes_mac, command='IS', frame=DEFAULT_FRAME_ID)
-                        self.Log("could not set \"" + device_name + "\" to " + str(level) + ". current level is unknown. trying to resample. please check if device is on")
-                        return False
+            # check if device is in db
+            if(not self.Name_in_db(device_name)):
+                self.Log("could not change level of device \"" + device_name + "\", device not in db")
+                return False
 
-                    # if a DOUT_DEVICE
-                    if(device_type in DOUT_DEVICES):
-                        # if valid level
-                        if(level in [0, 100]):
-                            # check if need to change device status
-                            if(curr_level != level):
-                                # set output pin high
-                                self._zb.remote_at(dest_addr_long=bytes_mac, command='D0', parameter=b'\x05')
-                                time.sleep(DIO_SIG_PERIOD)
-                                # make output pin low
-                                self._zb.remote_at(dest_addr_long=bytes_mac, command='D0', parameter=b'\x04')
-                                # update db
-                                self._device_db[device_name]['level'] = level
-                                self._device_db[device_name]['sample_time'] = time.time()
-                                with open(DEVICE_DB_FILENAME, 'w') as f:
-                                    json.dump(self._device_db, f)
-                                self.Log("changed device \"" +
-                                         device_name + "\" level to " + str(level))
-                                return True
-                            else:
-                                self.Log("did not change device \"" + device_name + "\" to " + str(level) + ", was already set")
-                                return True
-                        else:
-                            self.Log("invalid level value for outlet type devices")
-                            return False
-                    else:
-                        self.Log("setting levels of types other than DOUT_DEVICES is not yet supported")
-                        return False
+            # get current level
+            curr_level = self.Get_device_level(device_name)
+
+            # if could not get current level
+            if(curr_level == LEVEL_UNK):
+                self.Force_sample_device(device_name)
+                self.Log("could not set \"" + device_name + "\" to " + str(level) + ". current level is unknown. trying to resample. please check if device is on")
+                return False
+
+            # get type
+            device_type = self._device_db[device_name]['type']
+            # get mac addr
+            bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
+
+            # if do not need to change level
+            if(curr_level == level):
+                self.Log("did not change device \"" + device_name + "\" to " + str(level) + ", was already set")
+                return True
+
+            # if not a valid device type
+            if(device_type not in DEVICE_TYPES):
+                self.Log("could not change device \"" + device_name + "\" to " + str(level) + ", not a valid device type")
+                return False
+
+            # if an outlet
+            if(device_type == OUTLET_TYPE):
+                # if valid level for an outlet
+                if(level in [0, 100]):
+                    # set relay toggle pin high
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_HIGH)
+                    # make relay toggle pin low
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
+                    # update db
+                    self._device_db[device_name]['level'] = level
+                    self._device_db[device_name]['sample_time'] = time.time()
+                    with open(DEVICE_DB_FILENAME, 'w') as f:
+                        json.dump(self._device_db, f)
+                    self.Log("changed device \"" +
+                             device_name + "\" level to " + str(level))
+                    return True
                 else:
-                    self.Log("could not change level of device \"" + device_name + "\", device not in db")
+                    self.Log("invalid level value for outlet type devices")
                     return False
+            elif(device_type == LIGHT_TYPE):
+                # turn off relay
+                if(level == 0):
+                    # set relay toggle pin high
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_HIGH)
+                    # make relay toggle pin low
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
+
+                    # update db
+                    self._device_db[device_name]['level'] = level
+                    self._device_db[device_name]['sample_time'] = time.time()
+                    with open(DEVICE_DB_FILENAME, 'w') as f:
+                        json.dump(self._device_db, f)
+                    self.Log("changed device \"" +
+                             device_name + "\" level to " + str(level))
+                    return True
+                else:
+                    # check if need to turn relay on
+                    if(curr_level == 0):
+                        # set relay toggle pin high
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_HIGH)
+                        # make relay toggle pin low
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
+                        
+                        # set DPOT to 0:
+                        # set D flip flop CLR# to low (cleared)
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
+                        
+                        # set U/D# to low (down)
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
+
+                        # decrement pot all the way
+                        for i in range(DPOT_NUM_POS):
+                            # set INC# low
+                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+                            # set INC# high
+                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+
+                        # (can now set to desired level)
+
+                    # calculate DPOT position increase
+                    dpot_change = int(round(DPOT_NUM_POS*((level - curr_level) / 100.0)))
+
+                    # set U/D# to high (up)
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
+
+                    # increment pot to desired level
+                    for i in range(dpot_change):
+                        # set INC# low
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+                        # set INC# high
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+
+                    # undo changes to allow encoder to change values
+                    # set U/D# to low
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)    
+                    # set D flip flop CLR# to high (not cleared)
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
+
+                    # update db
+                    self._device_db[device_name]['level'] = level
+                    self._device_db[device_name]['sample_time'] = time.time()
+                    with open(DEVICE_DB_FILENAME, 'w') as f:
+                        json.dump(self._device_db, f)
+                    self.Log("changed device \"" +
+                             device_name + "\" level to " + str(level))
+                    return True
 
         # release lock when done
         finally:
@@ -386,26 +493,32 @@ class Home():
             if(device_type not in DEVICE_TYPES):
                 self.Log("invalid device type \"" + device_type + "\", cannot add to db")
                 return False
-            
+
             # get mac as bytes
             bytes_mac = self.Mac2bytes(device_mac)
-            
-            # for outlets and lights, set up change detection for input button
-            if(device_type in DIN_DEVICES):
-               
-               # set DIO1 to input
-               self._zb.remote_at(dest_addr_long=bytes_mac, command='D1', parameter='\x03')
-               # set up change detection for DIO1 and DIO2
-               self._zb.remote_at(dest_addr_long=bytes_mac, command='IC', parameter=b'\x06') # was x02
 
-               # set DIO0 to output low
-               self._zb.remote_at(dest_addr_long=bytes_mac, command='D0', parameter='\x04')
+            # for outlets and lights, set up change detection for input button
+            if(device_type in [OUTLET_TYPE, LIGHT_TYPE]):
+               # set RELAY_CTRL (D1) to input
+               self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_CTRL, parameter=XB_CONF_INPUT)
+               # set FORCE_SAMPLE_IN (D12 to input)
+               self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_IN, parameter=XB_CONF_INPUT)
+               
+               # set up change detection for RELAY_CTRL (D1) and FORCE_SAMPLE_IN (D12)
+               self._zb.remote_at(dest_addr_long=bytes_mac, command='IC', parameter=b'\x01002')
+
+               # set RELAY_TOGGLE (D0) to output low
+               self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
 
                # force sample of input
-               # set DIO2 to output low
-               self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x04')
-               # set DIO2 to output high
-               self._zb.remote_at(dest_addr_long=bytes_mac, command='D2', parameter='\x05')
+               # set FORCE_SAMPLE_OUT (D12) to high
+               self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_HIGH)
+               # set FORCE_SAMPLE_OUT (D12) to low
+               self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_LOW)
+
+            if(device_type == LIGHT_TYPE):
+                # set DPOT_OUT (D2) to analog input
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
 
             # create node identifier
             node_identifier = device_type + ":" + device_mac[12:]
