@@ -523,6 +523,9 @@ class Home():
                 # set DPOT_OUT (D2) to analog input
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
 
+                # set D flip flop CLR# to high (cleared)
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
+
             # create node identifier
             node_identifier = device_type + ":" + device_mac[12:]
 
@@ -930,7 +933,7 @@ class Home():
 
         elif(command == "forcesample"):
             self.Force_sample_all()
-            return("Forced sample")
+            return("sample:ok")
         
         # set level
         elif (command == "set"):
