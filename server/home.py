@@ -646,25 +646,33 @@ class Home():
             
             if("node_identifier" in discover_data):
 
-                # ignore if device already in db
-                device_mac = bytearray(discover_data['source_addr_long']).hex()
-                if(self.Mac2name(device_mac) != ""):
-                    return
+                # get lock
+                self._lock.acquire()
+                
+                try:
+                
+                    # ignore if device already in db
+                    device_mac = bytearray(discover_data['source_addr_long']).hex()
+                    if(self.Mac2name(device_mac) != ""):
+                        return
 
-                # get node identifier
-                node_identifier = discover_data["node_identifier"].decode("utf-8")
+                    # get node identifier
+                    node_identifier = discover_data["node_identifier"].decode("utf-8")
 
-                # check if is a valid device
-                split_ident = node_identifier.split(":")
-
-                #self.Log(str(split_ident))
-
-                # if node identifier has correct form
-                if(len(split_ident) == 2):             
-                    # get needed values
-                    device_type = split_ident[0]
-                    device_ident = split_ident[1]
+                    # check if is a valid device
+                    split_ident = node_identifier.split(":")
                     
+                    #self.Log(str(split_ident))
+
+                    # if node identifier has correct form
+                    if(len(split_ident) == 2):             
+                        # get needed values
+                        device_type = split_ident[0]
+                        device_ident = split_ident[1]
+                    else:
+                        self.Log("can't add discovered device, invalid identifier: " + str(node_identifier))
+                        return
+
                     # attempt to add to db
                     success = self.Add_device(node_identifier, device_mac, device_type)
 
@@ -676,9 +684,8 @@ class Home():
                         self.Log("failed to add discovered device to db")
                         return
 
-                else:
-                    self.Log("couldn't add discovered device, node identifier not recognized")
-                    return
+                finally:
+                    self._lock.release()
 
         # if it's a sample packet
         if("samples" in data):
