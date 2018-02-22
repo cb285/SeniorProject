@@ -145,10 +145,6 @@ class Home():
             
             self.Log("server ready!")
 
-        # catch exceptions
-        except Exception as e:
-            raise
-
         # release lock when done
         finally:
             if(locked):
@@ -184,10 +180,6 @@ class Home():
             self.Log("forced sample of device \"" + device_name + "\"")
 
             return True
-
-        # catch exceptions
-        except Exception as e:
-            raise
             
         # release lock when done
         finally:
@@ -211,10 +203,6 @@ class Home():
                 # set XB_FORCE_SAMPLE_OUT pin to low
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_HIGH)
 
-        # catch exceptions
-        except Exception as e:
-            raise
-            
         # release lock when done
         finally:
             self._lock.release()
@@ -254,10 +242,6 @@ class Home():
                     if(not silent):
                         self.Log("current level of \"" + device_name + "\" is unknown. trying to resample, please check if the device is turned on")
                     return LEVEL_UNK
-
-        # catch exceptions
-        except Exception as e:
-            raise
             
         # release lock when done
         finally:
@@ -401,10 +385,6 @@ class Home():
                              device_name + "\" level to " + str(level))
                     return True
 
-        # catch exceptions
-        except Exception as e:
-            raise
-            
         # release lock when done
         finally:
             self._lock.release()
@@ -423,10 +403,6 @@ class Home():
                     return True
                 
             return False
-
-        # catch exceptions
-        except Exception as e:
-            raise
 
         # release lock when done
         finally:
@@ -460,10 +436,6 @@ class Home():
                         return True
                     
                 return False
-
-        # catch exceptions
-        except Exception as e:
-            raise
             
         # release lock when done
         finally:
@@ -497,10 +469,6 @@ class Home():
                         return device
 
                 return ""
-
-        # catch exceptions
-        except Exception as e:
-            raise
             
         # release lock when done
         finally:
@@ -577,10 +545,6 @@ class Home():
             self.Log("device identifer is set to \"" + node_identifier + "\"")
             return True
 
-        # catch exceptions
-        except Exception as e:
-            raise
-            
         # release lock when done
         finally:
             self._lock.release()
@@ -615,10 +579,6 @@ class Home():
             else:
                 self.Log("could not remove device called \"" + device_name + "\" from the db, no device with that name exists")
                 return False
-
-        # catch exceptions
-        except Exception as e:
-            raise
             
         # release lock when done
         finally:
@@ -663,10 +623,6 @@ class Home():
                 self.Log("could not rename device called \"" + orig_name + "\" from the db, no device with that name exists")
                 return False
 
-        # catch exceptions
-        except Exception as e:
-            raise
-            
         # release lock when done
         finally:
             self._lock.release()
@@ -808,10 +764,6 @@ class Home():
                 # if device not in db
                 else:
                     self.Log("received packet from device not in db")
-
-            # catch exceptions
-            except Exception as e:
-                raise
             
             # release lock when done
             finally:
