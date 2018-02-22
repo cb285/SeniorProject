@@ -423,16 +423,13 @@ class Home():
                     return True
                 
             return False
-        
+
         # catch exceptions
         except Exception as e:
-            caught_exception = e
-            
+            raise
+
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
     """
@@ -501,10 +498,6 @@ class Home():
 
                 return ""
 
-        # catch exceptions
-        except Exception as e:
-            caught_exception = e
-            
         # catch exceptions
         except Exception as e:
             raise
@@ -685,7 +678,7 @@ class Home():
     """
     def Recv_handler(self, data):        
 
-        #self.Log("received zigbee packet:\n" + str(data))
+        self.Log("received zigbee packet:\n" + str(data))
         
         # if network discovery or node identification packet
         if("parameter" in data):
