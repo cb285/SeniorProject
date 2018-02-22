@@ -147,13 +147,10 @@ class Home():
 
         # catch exceptions
         except Exception as e:
-            caught_exception = e
-            
+            raise
+
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-
             if(locked):
                 # release lock
                 self._lock.release()
@@ -190,13 +187,10 @@ class Home():
 
         # catch exceptions
         except Exception as e:
-            caught_exception = e
+            raise
             
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
     """ Function: Force_sample_all
@@ -219,13 +213,10 @@ class Home():
 
         # catch exceptions
         except Exception as e:
-            caught_exception = e
+            raise
             
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
     """
@@ -266,13 +257,10 @@ class Home():
 
         # catch exceptions
         except Exception as e:
-            caught_exception = e
+            raise
             
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
     """
@@ -415,13 +403,10 @@ class Home():
 
         # catch exceptions
         except Exception as e:
-            caught_exception = e
+            raise
             
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
     """
@@ -481,13 +466,10 @@ class Home():
 
         # catch exceptions
         except Exception as e:
-            caught_exception = e
+            raise
             
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
     """
@@ -523,11 +505,12 @@ class Home():
         except Exception as e:
             caught_exception = e
             
+        # catch exceptions
+        except Exception as e:
+            raise
+            
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
     """
@@ -603,13 +586,10 @@ class Home():
 
         # catch exceptions
         except Exception as e:
-            caught_exception = e
+            raise
             
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
     """
@@ -645,13 +625,10 @@ class Home():
 
         # catch exceptions
         except Exception as e:
-            caught_exception = e
+            raise
             
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
 
@@ -695,13 +672,10 @@ class Home():
 
         # catch exceptions
         except Exception as e:
-            caught_exception = e
+            raise
             
         # release lock when done
         finally:
-            if(caught_exception):
-                raise
-            
             self._lock.release()
 
     """
@@ -844,13 +818,10 @@ class Home():
 
             # catch exceptions
             except Exception as e:
-                caught_exception = e
+                raise
             
             # release lock when done
             finally:
-                if(caught_exception):
-                    raise
-            
                 self._lock.release()
 
     """
