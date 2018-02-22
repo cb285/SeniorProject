@@ -52,8 +52,8 @@ RELAY_STAT_SAMPLE_IDENT = 'dio-1'
 
 # number of DPOT positions
 DPOT_NUM_POS = 32
-# DPOT CS# pin
-DPOT_CS_N = 'D2'
+# DPOT INC# pin
+DPOT_INC_N = 'D2'
 # DPOT U/D# pin
 DPOT_UD_N = 'D4'
 # D flip flop clear (clears CS#)
@@ -350,10 +350,10 @@ class Home():
 
                         # decrement pot all the way
                         for i in range(DPOT_NUM_POS):
-                            # set INC# low
-                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
                             # set INC# high
                             self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+                            # set INC# low
+                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
 
                         # (can now set to desired level)
 
@@ -523,6 +523,9 @@ class Home():
                 # set DPOT_OUT (D2) to analog input
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
 
+                # set D flip flop CS# to low (to allow encoder to change it)
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_CS_N, parameter=XB_CONF_LOW)
+                
                 # set D flip flop CLR# to high (cleared)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
 
