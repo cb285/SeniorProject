@@ -994,12 +994,12 @@ class Home():
             orig_name = params["device_name"]
             new_name = params["new_name"]
 
-            success = self.Change_device_name(orig_nam, new_name)
+            success = self.Change_device_name(orig_name, new_name)
 
             if(success):
-                return(new_name + ":change_name:ok")
+                return(orig_name + ":change_name:ok")
             else:
-                return(device_name + ":change_name:failed")
+                return(orig_name + ":change_name:failed")
 
         # add a task
         elif(command == "add_task"):
