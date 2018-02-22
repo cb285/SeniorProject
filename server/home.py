@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+&#!/usr/bin/env python3
 
 import sys
 import os
@@ -21,11 +21,11 @@ SETUP_WAIT = 5                             # time in seconds to wait for samples
 DISCOVERY_INTERVAL = 5                     # time in minutes between network discovery packet sends
 DISCOVERY_TASKID = "_discovery_task"       # task id to use for network discovery task
 
-LEVEL_UNK = -1                             # device level used to mean level is unknown
+LEVEL_UNK = -1                             # special device level used to mean level is unknown
 
 OUTLET_TYPE = "outlet"
 LIGHT_TYPE = "light"
-DEVICE_TYPES = [OUTLET_TYPE, LIGHT_TYPE]         # valid device types
+DEVICE_TYPES = [OUTLET_TYPE, LIGHT_TYPE]   # valid device types
 
 DEFAULT_FRAME_ID = b'\x01'
 
@@ -43,11 +43,12 @@ XB_CONF_ADC = b'\x02'
 XB_FORCE_SAMPLE_OUT = 'D10'
 XB_FORCE_SAMPLE_IN = 'D11'
 
-# relay toggle (toggles on a rising edge)
+# relay toggle (toggles relay on a rising edge)
 RELAY_TOGGLE = 'D0'
 
-# relay control
+# relay status
 RELAY_STAT = 'D1'
+RELAY_STAT_SAMPLE_IDENT = 'dio-1'
 
 # number of DPOT positions
 DPOT_NUM_POS = 32
@@ -60,6 +61,7 @@ DFLIPCLR_N = 'D5'
 
 # DPOT output pin
 DPOT_OUT = 'D3'
+DPOT_OUT_SAMPLE_IDENT = 'dio-3'
 
 """
 -----------------------------------
@@ -210,7 +212,7 @@ class Home():
     get current device level (polls device if sample is past TTL)
     returns the current level if successful, returns -1 if failed to get level
     """
-    def Get_device_level(self, device_name, silent=True):
+    def Get_device_level(self, device_name, silent=False):
         # get lock
         self._lock.acquire()
 
@@ -674,7 +676,7 @@ class Home():
                     self.Log("couldn't add discovered device, node identifier not recognized")
                     return
 
-        # if io sample packet
+        # if it's a sample packet
         if("samples" in data):
             # get source address
             source_mac = bytearray(data['source_addr_long'])
@@ -686,17 +688,17 @@ class Home():
                 # check if device in db (and get name)
                 device_name = self.Mac2name(source_mac)
                 if(device_name != ""):
-                   
+
                     # get device type
                     device_type = self._device_db[device_name]['type']
 
                     # if outlet
-                    if(device_type == "outlet"):
-                        # get pin status
+                    if(device_type == OUTLET_TYPE):
+                        # get relay status
                         stat = data['samples'][0]['dio-1']
-                        
+
                         curr_level = self.Get_device_level(device_name, silent=True)
-                       
+
                         # update status in db
                         if(stat):
                            
@@ -716,11 +718,45 @@ class Home():
 
                         # record sample time
                         self._device_db[device_name]['sample_time'] = time.time()
-                     
+
                         # update db file
                         with open(DEVICE_DB_FILENAME, "w") as f:
                             json.dump(self._device_db, f)
 
+                    elif(device_type == LIGHT_TYPE):
+                        # get relay status
+                        stat = data['samples'][0][RELAY_STAT_SAMPLE_IDENT]
+
+                        # get current level
+                        curr_level = self.Get_device_level(device_name, silent=True)
+                        
+                        # check if relay off
+                        if(not stat):
+                            # if different from current sample
+                            if(curr_level != 0):
+                                level = 0
+
+                        else:
+                            # get dpot ADC
+                            dpot_val = data['samples'][0][DPOT_OUT_SAMPLE_IDENT]
+                            
+                            # convert to voltage
+                            dpot_voltage = (dpot_val / 1023.0) * 1.2
+
+                            if(dpot_voltage > 1.0):
+                                dpot_voltage = 1.0
+                            
+                            level = 100*dpot_voltage
+
+                        # update db
+                        self._device_db[device_name]['level'] = level
+                        self.Log("device called \"" + + device_name + "\" level changed to " + str(level))
+                        
+                        # record sample time
+                        self._device_db[device_name]['sample_time'] = time.time()
+                        # update db file
+                        with open(DEVICE_DB_FILENAME, "w") as f:
+                            json.dump(self._device_db, f)
                     else:
                         raise ValueError("device type \"" + device_type + "\" sampling not supported")
 
