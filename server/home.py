@@ -1,4 +1,4 @@
-&#!/usr/bin/env python3
+#!/usr/bin/env python3
 
 import sys
 import os
@@ -37,7 +37,7 @@ DEFAULT_FRAME_ID = b'\x01'
 
 XB_CONF_HIGH = b'\x05'
 XB_CONF_LOW = b'\x04'
-XB_CONF_DINPUT = x'\x03'
+XB_CONF_DINPUT = b'\x03'
 XB_CONF_ADC = b'\x02'
 
 XB_FORCE_SAMPLE_OUT = 'D10'
@@ -478,10 +478,15 @@ class Home():
     Function: Add_device
     attempts to add a device to the db, returns True if successful, false otherwise
     """
-    def Add_device(self, device_name, device_mac, device_type):        
+    def Add_device(self, device_name, device_mac, device_type):
+
+        self.Log("Add_device getting lock")
+        
         # get lock
         self._lock.acquire()
-        
+
+        self.Log("Add_device got lock")
+
         try:
             # check if device with that name or mac is already in db
             if(self.Name_in_db(device_name)):
@@ -547,6 +552,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("Add_device released lock")
 
     """
     Function: Remove_device
@@ -653,7 +659,7 @@ class Home():
                 # check if is a valid device
                 split_ident = node_identifier.split(":")
 
-                self.Log(str(split_ident))
+                #self.Log(str(split_ident))
 
                 # if node identifier has correct form
                 if(len(split_ident) == 2):             
