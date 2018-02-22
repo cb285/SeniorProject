@@ -40,8 +40,8 @@ XB_CONF_LOW = b'\x04'
 XB_CONF_DINPUT = b'\x03'
 XB_CONF_ADC = b'\x02'
 
-XB_FORCE_SAMPLE_OUT = 'D10'
-XB_FORCE_SAMPLE_IN = 'D11'
+XB_FORCE_SAMPLE_OUT = 'DB' # D11
+XB_FORCE_SAMPLE_IN = 'DC' # D12
 
 # relay toggle (toggles relay on a rising edge)
 RELAY_TOGGLE = 'D0'
@@ -503,10 +503,10 @@ class Home():
             # for outlets and lights, set up change detection for input button
             if(device_type in [OUTLET_TYPE, LIGHT_TYPE]):
                # set RELAY_STATUS (D1) to input
-               self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_INPUT)
-               # set FORCE_SAMPLE_IN (D12 to input)
-               self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_IN, parameter=XB_CONF_INPUT)
-               
+               self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_DINPUT)
+               # set FORCE_SAMPLE_IN (D12) to input
+               self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_IN, parameter=XB_CONF_DINPUT)
+
                # set up change detection for RELAY_CTRL (D1) and FORCE_SAMPLE_IN (D12)
                self._zb.remote_at(dest_addr_long=bytes_mac, command='IC', parameter=b'\x01002')
 
@@ -514,9 +514,9 @@ class Home():
                self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
 
                # force sample of input
-               # set FORCE_SAMPLE_OUT (D12) to high
+               # set FORCE_SAMPLE_OUT (D11) to high
                self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_HIGH)
-               # set FORCE_SAMPLE_OUT (D12) to low
+               # set FORCE_SAMPLE_OUT (D11) to low
                self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_LOW)
 
             if(device_type == LIGHT_TYPE):
@@ -993,11 +993,11 @@ class Home():
 
             orig_name = params["device_name"]
             new_name = params["new_name"]
-            
+
             success = self.Change_device_name(orig_nam, new_name)
 
             if(success):
-                return(device_name + ":change_name:ok")
+                return(new_name + ":change_name:ok")
             else:
                 return(device_name + ":change_name:failed")
 

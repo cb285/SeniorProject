@@ -40,7 +40,7 @@ def main(args):
 
         # execute command
         ret = myhome.Run_command(params)
-        
+
         return(ret)
 
     # start http server
