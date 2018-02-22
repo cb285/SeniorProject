@@ -40,8 +40,8 @@ XB_CONF_LOW = b'\x04'
 XB_CONF_DINPUT = b'\x03'
 XB_CONF_ADC = b'\x02'
 
-XB_FORCE_SAMPLE_OUT = 'DB' # D11
-XB_FORCE_SAMPLE_IN = 'DC' # D12
+XB_FORCE_SAMPLE_OUT = 'D;' # D11
+XB_FORCE_SAMPLE_IN = 'D<' # D12
 
 # relay toggle (toggles relay on a rising edge)
 RELAY_TOGGLE = 'D0'
