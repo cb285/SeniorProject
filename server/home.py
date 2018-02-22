@@ -616,7 +616,7 @@ class Home():
                 with open(DEVICE_DB_FILENAME, "w") as f:
                     json.dump(self._device_db, f)
 
-                self.Log("changed device name \"" + orig_name + "\" to \"" + new_name)
+                self.Log("changed device name \"" + orig_name + "\" to \"" + new_name + "\"")
                 return True
 
             else:
@@ -938,7 +938,7 @@ class Home():
             device_name = params['name']
             
             # get wanted device level
-            level = params['level']
+            level = int(params['level'])
             
             success = self.Set_device_level(device_name, int(level))
             
@@ -951,14 +951,14 @@ class Home():
         elif(command == "get"):
             # get device name
             device_name = params['name']
-            
+
             curr_level = self.Get_device_level(device_name)
 
             if(curr_level == LEVEL_UNK):
                 return(device_name + ":get:unk")
             else:
                 return(device_name + ":get:" + str(curr_level))
-        
+
         # add a device
         elif(command == "add"):
             # get device name, mac addr, and type
