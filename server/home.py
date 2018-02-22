@@ -605,9 +605,9 @@ class Home():
                 
                 # save device
                 saved_device = self._device_db[orig_name]
-                
+
                 # remove old device name from db
-                del(self._device_db[device_name])
+                del(self._device_db[orig_name])
 
                 # add new device name to db
                 self._device_db[new_name] = saved_device
