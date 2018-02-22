@@ -506,8 +506,8 @@ class Home():
 
             # for outlets and lights, set up change detection for input button
             if(device_type in [OUTLET_TYPE, LIGHT_TYPE]):
-               # set RELAY_CTRL (D1) to input
-               self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_CTRL, parameter=XB_CONF_INPUT)
+               # set RELAY_STATUS (D1) to input
+               self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_INPUT)
                # set FORCE_SAMPLE_IN (D12 to input)
                self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_IN, parameter=XB_CONF_INPUT)
                
