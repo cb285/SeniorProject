@@ -199,9 +199,9 @@ class Home():
                 bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
 
                 # set XB_FORCE_SAMPLE_OUT pin to high
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_LOW)
-                # set XB_FORCE_SAMPLE_OUT pin to low
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_HIGH)
+                # set XB_FORCE_SAMPLE_OUT pin to low
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_OUT, parameter=XB_CONF_LOW)
 
         # release lock when done
         finally:
