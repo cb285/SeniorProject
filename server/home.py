@@ -48,7 +48,7 @@ RELAY_TOGGLE = 'D0'
 
 # relay status
 RELAY_STAT = 'D1'
-RELAY_STAT_SAMPLE_IDENT = 'dio-1'
+RELAY_STAT_SAMPLE_IDENT = 'adc-3'
 
 # number of DPOT positions
 DPOT_NUM_POS = 32
