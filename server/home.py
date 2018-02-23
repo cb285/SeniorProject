@@ -524,7 +524,10 @@ class Home():
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
 
                 # set D flip flop CS# to input (to allow encoder to change it)
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_DINPUT)                
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_DINPUT)
+
+                # set U/D# to low to allow encoder to change it
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
             # create node identifier
             node_identifier = device_type + ":" + device_mac[12:]
