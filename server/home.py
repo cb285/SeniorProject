@@ -507,8 +507,8 @@ class Home():
                # set FORCE_SAMPLE_IN (D12) to input
                self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_IN, parameter=XB_CONF_DINPUT)
                
-               # set up change detection for RELAY_CTRL (D1) and FORCE_SAMPLE_IN (D12)
-               self._zb.remote_at(dest_addr_long=bytes_mac, command='IC', parameter=b'\x01002')
+               # set up change detection for RELAY_CTRL (D1) and FORCE_SAMPLE_IN (D7)
+               self._zb.remote_at(dest_addr_long=bytes_mac, command='IC', parameter=b'\x82')
 
                # set RELAY_TOGGLE (D0) to output low
                self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
