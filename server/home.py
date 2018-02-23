@@ -237,10 +237,10 @@ class Home():
                 # if sample is not valid
                 else:
                     # force sample of input
-                    self.Force_sample_device(device_name)
+                    #self.Force_sample_device(device_name)
 
                     if(not silent):
-                        self.Log("current level of \"" + device_name + "\" is unknown. trying to resample, please check if the device is turned on")
+                        self.Log("current level of \"" + device_name + "\" is unknown. please check if the device is turned on")
                     return LEVEL_UNK
             
         # release lock when done
@@ -707,9 +707,9 @@ class Home():
                         # get relay status
                         stat = data['samples'][0]['dio-1']
 
-                        #curr_level = self.Get_device_level(device_name, silent=True)
+                        curr_level = self.Get_device_level(device_name, silent=True)
 
-                        curr_level = self._device_db[device_name]['level']
+                        #curr_level = self._device_db[device_name]['level']
                         
                         # update status in db
                         if(stat):
@@ -740,7 +740,8 @@ class Home():
                         stat = data['samples'][0][RELAY_STAT_SAMPLE_IDENT]
                         
                         # get current level
-                        curr_level = self._device_db[device_name]['level']
+                        curr_level = self.Get_device_level(device_name, silent=True)
+                        #curr_level = self._device_db[device_name]['level']
                         
                         # check if relay off
                         if(not stat):
@@ -756,7 +757,7 @@ class Home():
 
                             # get dpot ADC
                             dpot_val = data['samples'][0][DPOT_OUT_SAMPLE_IDENT]
-                            
+
                             # convert to voltage
                             dpot_voltage = (dpot_val / 1023.0) * 1.2
 
