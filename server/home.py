@@ -365,10 +365,10 @@ class Home():
 
                     # increment pot to desired level
                     for i in range(dpot_change):
-                        # set INC# low
-                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
                         # set INC# high
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+                        # set INC# low
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
 
                     # undo changes to allow encoder to change values
                     # set U/D# to low
