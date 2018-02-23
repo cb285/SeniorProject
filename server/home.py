@@ -48,7 +48,7 @@ RELAY_TOGGLE = 'D0'
 
 # relay status
 RELAY_STAT = 'D1'
-RELAY_STAT_SAMPLE_IDENT = 'adc-3'
+RELAY_STAT_SAMPLE_IDENT = 'dio-1'
 
 # number of DPOT positions
 DPOT_NUM_POS = 32
@@ -61,7 +61,7 @@ DFLIPCLR_N = 'D5'
 
 # DPOT output pin
 DPOT_OUT = 'D3'
-DPOT_OUT_SAMPLE_IDENT = 'dio-3'
+DPOT_OUT_SAMPLE_IDENT = 'adc-3'
 
 """
 -----------------------------------
@@ -770,7 +770,7 @@ class Home():
                             
                         # update db
                         self._device_db[device_name]['level'] = level
-                        self.Log("device called \"" + + device_name + "\" level changed to " + str(level))
+                        self.Log("device called \"" + device_name + "\" level changed to " + str(level))
                         
                         # record sample time
                         self._device_db[device_name]['sample_time'] = time.time()
