@@ -726,7 +726,7 @@ class Home():
                                 return
 
                             self._device_db[device_name]['level'] = 0
-                            self.Log("device called \"" + + device_name + "\" level changed to 0")
+                            self.Log("device called \"" + device_name + "\" level changed to 0")
 
                         # record sample time
                         self._device_db[device_name]['sample_time'] = time.time()
@@ -749,6 +749,11 @@ class Home():
                                 level = 0
 
                         else:
+                            # check if adc sample not in packet
+                            if(DPOT_OUT_SAMPLE_IDENT not in data['samples'][0]):
+                                self.Log("sample for pin " + DPOT_OUT_SAMPLE_IDENT + " not in sample")
+                                return
+
                             # get dpot ADC
                             dpot_val = data['samples'][0][DPOT_OUT_SAMPLE_IDENT]
                             
@@ -758,8 +763,11 @@ class Home():
                             if(dpot_voltage > 1.0):
                                 dpot_voltage = 1.0
                             
-                            level = 100*dpot_voltage
+                            level = int(round(100*dpot_voltage))
 
+                        if(level == curr_level):
+                            return
+                            
                         # update db
                         self._device_db[device_name]['level'] = level
                         self.Log("device called \"" + + device_name + "\" level changed to " + str(level))
