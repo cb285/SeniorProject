@@ -372,7 +372,7 @@ class Home():
 
                     # undo changes to allow encoder to change values
                     # set U/D# to low
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)    
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
                     # set D flip flop CLR# to input (not cleared)
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_DINPUT)
 
@@ -504,7 +504,7 @@ class Home():
             if(device_type in [OUTLET_TYPE, LIGHT_TYPE]):
                # set RELAY_STATUS (D1) to input
                self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_DINPUT)
-               # set FORCE_SAMPLE_IN (D12) to input
+               # set FORCE_SAMPLE_IN (D7) to input
                self._zb.remote_at(dest_addr_long=bytes_mac, command=XB_FORCE_SAMPLE_IN, parameter=XB_CONF_DINPUT)
                
                # set up change detection for RELAY_CTRL (D1) and FORCE_SAMPLE_IN (D7)
@@ -582,11 +582,10 @@ class Home():
             else:
                 self.Log("could not remove device called \"" + device_name + "\" from the db, no device with that name exists")
                 return False
-            
+
         # release lock when done
         finally:
             self._lock.release()
-
 
     """
     Function: Change_device_name
@@ -661,7 +660,7 @@ class Home():
 
                     # check if is a valid device
                     split_ident = node_identifier.split(":")
-                    
+
                     #self.Log(str(split_ident))
 
                     # if node identifier has correct form
@@ -708,8 +707,10 @@ class Home():
                         # get relay status
                         stat = data['samples'][0]['dio-1']
 
-                        curr_level = self.Get_device_level(device_name, silent=True)
+                        #curr_level = self.Get_device_level(device_name, silent=True)
 
+                        curr_level = self._device_db[device_name]['level']
+                        
                         # update status in db
                         if(stat):
                            
@@ -737,9 +738,9 @@ class Home():
                     elif(device_type == LIGHT_TYPE):
                         # get relay status
                         stat = data['samples'][0][RELAY_STAT_SAMPLE_IDENT]
-
+                        
                         # get current level
-                        curr_level = self.Get_device_level(device_name, silent=True)
+                        curr_level = self._device_db[device_name]['level']
                         
                         # check if relay off
                         if(not stat):
