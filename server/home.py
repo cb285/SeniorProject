@@ -397,9 +397,7 @@ class Home():
     """
     def Name_in_db(self, device_name):
         # get lock
-        self.Log("name_in_db getting lock")
         self._lock.acquire()
-        self.Log("name_in_db got lock")
         
         try:
             for device in self._device_db:
