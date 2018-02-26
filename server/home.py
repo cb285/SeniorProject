@@ -91,7 +91,9 @@ class Home():
         self._lock = RLock()
 
         # acquire lock
+        self.Log("init getting lock")
         self._lock.acquire()
+        self.Log("init got lock")
         locked = True
 
         try:
@@ -128,6 +130,7 @@ class Home():
             
             # release lock
             self._lock.release()
+            self.Log("init released lock")
             locked = False
 
             self.Log("sampling devices...")
@@ -150,6 +153,7 @@ class Home():
             if(locked):
                 # release lock
                 self._lock.release()
+                self.Log("init released lock")
 
     """
     Function: Mac2bytes
@@ -162,7 +166,9 @@ class Home():
     def Force_sample_device(self, device_name):
 
         # get lock
+        self.Log("force_sample_device getting lock")
         self._lock.acquire()
+        self.Log("force_sample_device got lock")
 
         # check if device in db
         if(not self.Name_in_db(device_name)):
@@ -184,6 +190,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("force_sample_device released lock")
 
     """ Function: Force_sample_all
     requests input sample from all devices in db
@@ -191,6 +198,7 @@ class Home():
     def Force_sample_all(self):       
         # get lock
         self._lock.acquire()
+        self.Log("force_sample_all got lock")
 
         try:
             # for each device in db
@@ -206,6 +214,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("force_sample_all released lock")
 
     """
     Function: Get_device_level
@@ -214,7 +223,9 @@ class Home():
     """
     def Get_device_level(self, device_name, silent=False):
         # get lock
+        self.Log("get_device_level getting lock")
         self._lock.acquire()
+        self.Log("get_device_level got lock")
 
         try:
             # check if device with that name is in db
@@ -246,6 +257,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("get_device_level released lock")
 
     """
     Function: Set_device_level
@@ -261,7 +273,9 @@ class Home():
     """
     def Set_device_level(self, device_name, level):
         # get lock
+        self.Log("set_device_level getting lock")
         self._lock.acquire()
+        self.Log("set_device_level got lock")
 
         try:
             # check if level is valid
@@ -388,6 +402,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("get_device_level released lock")
 
     """
     Function: Name_in_db
@@ -396,7 +411,10 @@ class Home():
     """
     def Name_in_db(self, device_name):
         # get lock
+        self.Log("name_in_db getting lock")
         self._lock.acquire()
+        self.Log("name_in_db got lock")
+        
         try:
             for device in self._device_db:
                 if(device == device_name):
@@ -407,6 +425,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("name_in_db released lock")
 
     """
     Function: Mac_in_db
@@ -415,7 +434,9 @@ class Home():
     """
     def Mac_in_db(self, device_mac):
         # get lock
+        self.Log("mac_in_db getting lock")
         self._lock.acquire()
+        self.Log("mac_in_db got lock")
         
         if(type(device_mac) is bytearray):
             byte_format = True
@@ -440,6 +461,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("mac_in_db released lock")
 
     """
     Function: Mac2name
@@ -448,7 +470,9 @@ class Home():
     """
     def Mac2name(self, device_mac):
         # get lock
+        self.Log("mac2name getting lock")
         self._lock.acquire()
+        self.Log("mac2name got lock")
 
         if(type(device_mac) is bytearray):
             byte_format=True
@@ -473,6 +497,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("mac2name released lock")
 
     """
     Function: Add_device
@@ -481,7 +506,9 @@ class Home():
     def Add_device(self, device_name, device_mac, device_type):
         
         # get lock
+        self.Log("add_device getting lock")
         self._lock.acquire()
+        self.Log("add_device got lock")
 
         try:
             # check if device with that name or mac is already in db
@@ -557,6 +584,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("add_device released lock")
 
     """
     Function: Remove_device
@@ -564,7 +592,9 @@ class Home():
     """
     def Remove_device(self, device_name):
         # get lock
+        self.Log("remove_device getting lock")
         self._lock.acquire()
+        self.Log("remove_device got lock")
         
         try:
             # check if device with that name or mac is already in db
@@ -592,6 +622,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("remove_device released lock")
 
     """
     Function: Change_device_name
@@ -600,7 +631,9 @@ class Home():
     """
     def Change_device_name(self, orig_name, new_name):
         # get lock
+        self.Log("change_device_name getting lock")
         self._lock.acquire()
+        self.Log("change_device_name got lock")
         
         try:
             # check if device with that name is in db
@@ -634,6 +667,7 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
+            self.Log("change_device_name released lock")
 
     """
     Function: Recv_handler
@@ -642,7 +676,7 @@ class Home():
     """
     def Recv_handler(self, data):        
 
-        self.Log("received zigbee packet:\n" + str(data))
+        #self.Log("received zigbee packet:\n" + str(data))
         
         # if network discovery or node identification packet
         if("parameter" in data):
@@ -652,7 +686,9 @@ class Home():
             if("node_identifier" in discover_data):
 
                 # get lock
+                self.Log("recv_handler discovery getting lock")
                 self._lock.acquire()
+                self.Log("recv_handler discovery got lock")
                 
                 try:
                 
@@ -691,6 +727,7 @@ class Home():
 
                 finally:
                     self._lock.release()
+                    self.Log("recv_handler discovery released lock")
 
         # if it's a sample packet
         if("samples" in data):
@@ -698,7 +735,9 @@ class Home():
             source_mac = bytearray(data['source_addr_long'])
 
             # get lock
+            self.Log("recv_handler samples getting lock")
             self._lock.acquire()
+            self.Log("recv_handler samples got lock")
 
             try:
                 # check if device in db (and get name)
@@ -790,6 +829,7 @@ class Home():
             
             # release lock when done
             finally:
+                self.Log("recv_handler samples released lock")
                 self._lock.release()
 
     """
@@ -801,7 +841,9 @@ class Home():
         self.Log("sending device discovery packet")
 
         # get lock
+        self.Log("discover_devices getting lock")
         self._lock.acquire()
+        self.Log("discover_devices got lock")
         
         try:
             # tell local zigbee to discover devices on network
@@ -809,6 +851,7 @@ class Home():
 
         finally:
             self._lock.release()
+            self.Log("discover_devices released lock")
 
     """
     Function: Add_task
