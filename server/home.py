@@ -373,8 +373,8 @@ class Home():
                     # undo changes to allow encoder to change values
                     # set U/D# to low
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
-                    # set D flip flop CLR# to input (not cleared)
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_DINPUT)
+                    # set D flip flop CLR# to high
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
 
                     # update db
                     self._device_db[device_name]['level'] = level
@@ -523,8 +523,8 @@ class Home():
                 # set DPOT_OUT (D2) to analog input
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
 
-                # set D flip flop CLR# to low (to allow encoder to change it)
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
+                # set D flip flop CLR# to input (to allow encoder to change it)
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_DINPUT)
 
                 # DPOT INC# to low (allow encoder to change it)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
