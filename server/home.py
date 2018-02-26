@@ -523,14 +523,17 @@ class Home():
                 # set DPOT_OUT (D2) to analog input
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
 
-                # set D flip flop CS# to input (to allow encoder to change it)
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_DINPUT)
+                # set D flip flop CLR# to low (to allow encoder to change it)
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
 
-                # set U/D# to low to allow encoder to change it
+                # DPOT INC# to low (allow encoder to change it)
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+                
+                # set U/D# to low (allow encoder to change it)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
             # create node identifier
-            node_identifier = device_type + ":" + device_mac[12:]
+            node_identifier = device_type + "-" + device_mac[12:]
 
             # write node identifier to device
             self._zb.remote_at(dest_addr_long=bytes_mac, command='NI', parameter=node_identifier)
@@ -662,7 +665,7 @@ class Home():
                     node_identifier = discover_data["node_identifier"].decode("utf-8")
 
                     # check if is a valid device
-                    split_ident = node_identifier.split(":")
+                    split_ident = node_identifier.split("-")
 
                     #self.Log(str(split_ident))
 
@@ -708,11 +711,9 @@ class Home():
                     # if outlet
                     if(device_type == OUTLET_TYPE):
                         # get relay status
-                        stat = data['samples'][0]['dio-1']
+                        stat = data['samples'][0][RELAY_STAT_SAMPLE_IDENT]
 
                         curr_level = self.Get_device_level(device_name, silent=True)
-
-                        #curr_level = self._device_db[device_name]['level']
                         
                         # update status in db
                         if(stat):
@@ -720,7 +721,7 @@ class Home():
                             # check if no actual change
                             if(curr_level == 100):
                                 return
-                           
+                            
                             self._device_db[device_name]['level'] = 100
                             self.Log("device called \"" + device_name + "\" level changed to 100")
                         else:
@@ -744,7 +745,6 @@ class Home():
                         
                         # get current level
                         curr_level = self.Get_device_level(device_name, silent=True)
-                        #curr_level = self._device_db[device_name]['level']
                         
                         # check if relay off
                         if(not stat):
@@ -767,7 +767,7 @@ class Home():
                             if(dpot_voltage > 1.0):
                                 dpot_voltage = 1.0
                             
-                            level = int(round(100*dpot_voltage))
+                            level = 100 - int(round(100*dpot_voltage))
 
                         if(level == curr_level):
                             return
@@ -1010,11 +1010,11 @@ class Home():
         # change a device name
         elif(command == "change_name"):
 
-            if("device_name" not in params or "new_name" not in params):
-                self.Log("change name failed, device_name or new_name not specified")
+            if("name" not in params or "new_name" not in params):
+                self.Log("change name failed, \"name\" or \"new_name\" not specified")
                 return("no_name:change_name:failed")
 
-            orig_name = params["device_name"]
+            orig_name = params["name"]
             new_name = params["new_name"]
 
             success = self.Change_device_name(orig_name, new_name)
@@ -1032,7 +1032,7 @@ class Home():
                 return(task_id + ":add_task:ok")
             else:
                 return(task_id + ":add_task:failed")
-            
+
         else:
             self.Log("recieved invalid command")
             return("invalid command")
