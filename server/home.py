@@ -356,24 +356,43 @@ class Home():
                             self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
 
                         # (can now set to desired level)
+                        dpot_change = level
 
-                    # calculate DPOT position increase
-                    dpot_change = int(round(DPOT_NUM_POS*((level - curr_level) / 100.0)))
+                    else:
+                        # calculate DPOT position increase
+                        dpot_change = int(round(DPOT_NUM_POS*((level - curr_level) / 100.0)))
 
-                    # set U/D# to high (up)
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
+                    # set D flip flop CLR# to low (cleared)
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
+                            
+                    if(dpot_change > 0):
+                    
+                        # set U/D# to high (up)
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
+                        
+                        # increment pot to desired level
+                        for i in range(dpot_change):
+                            # set INC# high
+                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+                            # set INC# low
+                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
 
-                    # increment pot to desired level
-                    for i in range(dpot_change):
-                        # set INC# high
-                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
-                        # set INC# low
-                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+                            # undo changes to allow encoder to change values
+                            # set U/D# to low
+                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
-                    # undo changes to allow encoder to change values
-                    # set U/D# to low
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
-                    # set D flip flop CLR# to high
+                    else:
+                        # set U/D# to low (down)
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
+
+                        # decrese pot to desired level
+                        for i in range(dpot_change):
+                            # set INC# high
+                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+                            # set INC# low
+                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+
+                    # set D flip flop CLR# to high (not cleared)
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
 
                     # update db
@@ -696,6 +715,10 @@ class Home():
 
         # if it's a sample packet
         if("samples" in data):
+
+            # get time received
+            recv_time = time.time()
+            
             # get source address
             source_mac = bytearray(data['source_addr_long'])
 
