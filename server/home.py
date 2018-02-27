@@ -352,12 +352,12 @@ class Home():
                         # set D flip flop CLR# to low (cleared)
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
                         
-                        # set U/D# to low (down)
+                        # set U/D# to high (up)
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
                         time.sleep(WAIT_TIME)
                         
-                        # decrement pot all the way
+                        # increment pot all the way up (dpot_out voltage higher => pulse width higher => light dimmer)
                         for i in range(DPOT_NUM_POS):
                             # set INC# high
                             self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
@@ -369,7 +369,7 @@ class Home():
 
                     else:
                         # calculate DPOT position increase
-                        dpot_change = int(round(DPOT_NUM_POS*((level - curr_level) / 100.0)))
+                        dpot_change = int(round(DPOT_NUM_POS*((curr_level - level) / 100.0)))
 
                     # set D flip flop CLR# to low (cleared)
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
@@ -380,13 +380,21 @@ class Home():
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
 
                         time.sleep(WAIT_TIME)
+
+                        # release lock to let Recv_handler process samples
+                        self._lock.release()
                         
                         # increment pot to desired level
-                        for i in range(dpot_change):
+                        while(self._device_db[device_name]['level'] < level):
                             # set INC# high
                             self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+                            time.sleep(WAIT_TIME)
                             # set INC# low
                             self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+                            time.sleep(WAIT_TIME)
+
+                        # re-acquire lock
+                        self._lock.acquire()
 
                         time.sleep(WAIT_TIME)
                             
@@ -396,22 +404,27 @@ class Home():
 
                     else:
 
-                        # make dpot_change positive
-                        dpot_change = dpot_change * -1
-                        
                         # set U/D# to low (down)
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
                         time.sleep(WAIT_TIME)
+
+                        # release lock to let Recv_handler process samples
+                        self._lock.release()
                         
                         # decrese pot to desired level
-                        for i in range(dpot_change):
+                        while(self._device_db[device_name]['level'] < level):
                             # set INC# high
                             self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+                            time.sleep(WAIT_TIME / 2)
                             # set INC# low
                             self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+                            time.sleep(WAIT_TIME / 2)
 
-                    time.sleep(WAIT_TIME)
+                        # re-acquire lock
+                        self._lock.acquire()
+
+                    time.sleep(5*WAIT_TIME)
                     # set D flip flop CLR# to high (not cleared)
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
 
