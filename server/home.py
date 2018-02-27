@@ -29,6 +29,8 @@ DEVICE_TYPES = [OUTLET_TYPE, LIGHT_TYPE]   # valid device types
 
 DEFAULT_FRAME_ID = b'\x01'
 
+WAIT_TIME = .1
+
 """
 -----------------------------------
            IO CONSTANTS
@@ -304,6 +306,9 @@ class Home():
                 if(level in [0, 100]):
                     # set relay toggle pin high
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_HIGH)
+
+                    time.sleep(WAIT_TIME)
+                    
                     # make relay toggle pin low
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
                     # update db
@@ -322,6 +327,7 @@ class Home():
                 if(level == 0):
                     # set relay toggle pin high
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_HIGH)
+                    time.sleep(WAIT_TIME)
                     # make relay toggle pin low
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
 
@@ -338,6 +344,7 @@ class Home():
                     if(curr_level == 0):
                         # set relay toggle pin high
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_HIGH)
+                        time.sleep(WAIT_TIME)
                         # make relay toggle pin low
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
                         
@@ -348,6 +355,8 @@ class Home():
                         # set U/D# to low (down)
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
+                        time.sleep(WAIT_TIME)
+                        
                         # decrement pot all the way
                         for i in range(DPOT_NUM_POS):
                             # set INC# high
@@ -364,11 +373,13 @@ class Home():
 
                     # set D flip flop CLR# to low (cleared)
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
-                            
+
                     if(dpot_change > 0):
                     
                         # set U/D# to high (up)
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
+
+                        time.sleep(WAIT_TIME)
                         
                         # increment pot to desired level
                         for i in range(dpot_change):
@@ -377,14 +388,22 @@ class Home():
                             # set INC# low
                             self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
 
-                            # undo changes to allow encoder to change values
-                            # set U/D# to low
-                            self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
+                        time.sleep(WAIT_TIME)
+                            
+                        # undo changes to allow encoder to change values
+                        # set U/D# to low
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
                     else:
+
+                        # make dpot_change positive
+                        dpot_change = dpot_change * -1
+                        
                         # set U/D# to low (down)
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
+                        time.sleep(WAIT_TIME)
+                        
                         # decrese pot to desired level
                         for i in range(dpot_change):
                             # set INC# high
@@ -392,6 +411,7 @@ class Home():
                             # set INC# low
                             self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
 
+                    time.sleep(WAIT_TIME)
                     # set D flip flop CLR# to high (not cleared)
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
 
@@ -407,7 +427,6 @@ class Home():
         # release lock when done
         finally:
             self._lock.release()
-            self.Log("get_device_level released lock")
 
     """
     Function: Name_in_db
