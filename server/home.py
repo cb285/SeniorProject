@@ -459,8 +459,8 @@ class Home():
                 # set DPOT_OUT (D2) to analog input
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
                 
-                # set D flip flop CLR# to input
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_DINPUT)
+                # set D flip flop CLR# to high
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
                 
                 # DPOT INC# to low
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
@@ -565,14 +565,12 @@ class Home():
             return
 
         # if could get lock:
-
-        # if discovery packet response
-        if("parameter" in packet):
-            discovery_data = packet['parameter']
-            
-            if("node_identifier" in discovery_data):
-
-                try:
+        
+        try:
+            # if discovery packet response
+            if("parameter" in packet):
+                discovery_data = packet['parameter']
+                if("node_identifier" in discovery_data):
                     with self._db_lock:
                         
                         self.Log("received discovery packet response")
@@ -609,10 +607,9 @@ class Home():
                         else:
                             self.Log("failed to add discovered device to db")
                             return
-                finally:
-                    # release process_packets lock
-                    self._process_packets_lock.release()
-                        
+        finally:
+            # release process_packets lock
+            self._process_packets_lock.release()
 
     """
     Function: Discover_devices
