@@ -3,19 +3,9 @@
 import sys
 from flask import Flask, request
 from flask_basicauth import BasicAuth
-from home import *
+from home import myhome
 
-PORT = 5000
-
-def discover():
-    global myhome
-    myhome.Discover_devices()
-
-def run_task(params):
-    global myhome
-    myhome.Run_command(params)
-    
-myhome = Home(discover_function=discover, task_function=run_task)
+PORT = 5002
 
 def main(args):
     # get instance of home server
@@ -23,12 +13,7 @@ def main(args):
     
     # setup http request handler
     app = Flask(__name__)
-    #app.config['BASIC_AUTH_USERNAME'] = 'admin'
-    #app.config['BASIC_AUTH_PASSWORD'] = 'admin'
-    #app.config['BASIC_AUTH_FORCE'] = True
-    #basic_auth = BasicAuth(app)
     @app.route('/',methods=['GET', 'POST'])
-    #@basic_auth.required
     def req_handler():
         # check if json format
         if(request.is_json):
@@ -39,9 +24,7 @@ def main(args):
         print("received http request:\n" + str(params))
 
         # execute command
-        ret = myhome.Run_command(params)
-
-        return(ret)
+        return(myhome.Run_command(params))
 
     # start http server
     app.run(host='0.0.0.0', port=PORT) #, ssl_context='adhoc')
