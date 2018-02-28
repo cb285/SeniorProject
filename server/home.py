@@ -261,7 +261,13 @@ class Home():
         
         # get current device level
         curr_level = self.Sample_device(device_name)
-        
+
+        # check if got a sample
+        if(curr_level == LEVEL_UNK):
+            self.Log("could not set device \"" + device_name +"\" level to " + str(level) + ", could not communicate with module")
+            return False
+
+        # check if need to change the level
         if(curr_level == level):
             self.Log("did not need to set device \"" + device_name +"\" level to " + str(level) + ", was already set")
             return True
