@@ -227,15 +227,15 @@ class Home():
                                         dpot_level = int(round(100*((samples[DPOT_OUT_SAMPLE_IDENT] / 1023.0) * 1.2)))
                                         
                                         # adjust the level
-                                        if(dpot_level >= 100):
-                                            dpot_level = 99
+                                        if(dpot_level > 100):
+                                            dpot_level = 100
                                         elif(dpot_level < 0):
                                             dpot_level = 0
 
                                         # return level
                                         # turn off sampling
                                         self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
-                                        return 100 - dpot_level
+                                        return dpot_level
 
                 # turn off sampling
                 self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
@@ -324,27 +324,27 @@ class Home():
             # set D flip flop CLR# to low (cleared)
             self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
 
-            # if light is too dim
-            if(curr_level < level):
+            # if light is too bright
+            if(curr_level > level):
 
                 # set U/D# to low (down)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
-                # while the light is too dim
-                while(level - self.Sample_device(device_name) > 0):
+                # while the light is too bright
+                while(level < self.Sample_device(device_name)):
                     # decrement the dpot
                     # set INC# high
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
                     # set INC# low
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
 
-            # light is too bright
+            # light is too dim
             else:
                 # set U/D# to high (up)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
 
-                # while the light is too bright
-                while(level - self.Sample_device(device_name) < 0):
+                # while the light is too dim
+                while(self.Sample_device(device_name) < level):
                     # increment the dpot
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
                     # set INC# low
