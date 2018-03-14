@@ -56,7 +56,7 @@ DPOT_OUT = 'D3'
 DPOT_OUT_SAMPLE_IDENT = 'adc-3'
 
 class Home():
-    def __init__(self, discover_function, task_function):
+    def __init__(self, task_function):
         # setup logging
         logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG)
         self.Log("starting server, please wait...")
@@ -510,7 +510,6 @@ class Home():
             self.Log("removed device \"" + device_name + "\" from db")
             return True
 
-
     """
     Function: Change_device_name
     given old name and new name, changes device name
@@ -537,6 +536,7 @@ class Home():
             del(self._device_db[orig_name])
             
             # add new device name to db
+            saved_device["name"] = new_name
             self._device_db[new_name] = saved_device
             
             # update db file
@@ -612,7 +612,7 @@ class Home():
             self._process_packets_lock.release()
 
     """
-    Function: Discover_devices
+    Function: Send_discovery_packet
     sends network discovery command to local zigbee.
     discovered devices are handled in Recv_handler
     """
@@ -763,7 +763,7 @@ class Home():
         # test
         if (command == "test"):
             self.Log("receieved test command")
-            return("test:ok")
+            return(command + ":ok")
         
         # set level
         elif (command == "set_device_level"):
@@ -854,11 +854,11 @@ class Home():
                 return(command + ":failed")
 
         # change a device name
-        elif(command == "change_name"):
+        elif(command == "change_device_name"):
 
             if("name" not in params):
                 self.Log("cannot run change_name command, must specify \"name\"")
-                return("change_name:failed")
+                return(command + ":failed")
 
             if("new_name" not in params):
                 self.Log("cannot run change_name command, must specify \"new_name\"")
@@ -874,6 +874,11 @@ class Home():
             else:
                 return(command + ":failed")
 
+        # discover devices
+        elif(command == "discover_devices"):
+            self.Send_discovery_packet()
+            return(command + ":ok")
+            
         # add a task
         elif(command == "add_task"):
             success = self.Add_task(params)
@@ -900,11 +905,8 @@ def Run_task(task):
     global myhome
     myhome.Run_command(task)
 
-def Discover():
-    global myhome
-    myhome.Send_discovery()
 
-myhome = Home(discover_function=Discover, task_function=Run_task)
+myhome = Home(task_function=Run_task)
 
 if(__name__ == "__main__"):
     print("this is a library. import it to use it")
