@@ -763,35 +763,35 @@ class Home():
         # test
         if (command == "test"):
             self.Log("receieved test command")
-            return(command + ":ok")
+            return("ok")
         
         # set level
         elif (command == "set_device_level"):
 
             if('name' not in params):
                 self.Log("cannot run set command, must specify \"name\"")
-                return(command + ":failed")
+                return("failed")
             
             # get device name
             device_name = params['name']
 
             if('level' not in params):
                 self.Log("cannot run set command, must specify \"level\"")
-                return(command + ":failed")
+                return("failed")
             
             # get wanted device level
             level = int(params['level'])
 
             if(level < 0 or level > 100):
                 self.Log("level was invalid")
-                return(command + ":failed")
+                return("failed")
 
             success = self.Set_device_level(device_name, int(level))
             
             if(not success):
-                return(command + ":failed")
+                return("failed")
             else:
-                return(command + ":ok")
+                return("ok")
 
         # get level
         elif(command == "get_device_level"):
@@ -806,24 +806,24 @@ class Home():
             curr_level = self.Sample_device(device_name)
 
             if(curr_level == LEVEL_UNK):
-                return(command + ":unk")
+                return("unk")
             else:
-                return(command + ":" + str(curr_level))
+                return(str(curr_level))
 
         # add a device
         elif(command == "add_device"):
 
             if('name' not in params):
                 self.Log("cannot run add command, must specify \"name\"")
-                return("add:failed")
+                return("failed")
 
             if('mac' not in params):
                 self.Log("cannot run add command, must specify \"mac\"")
-                return("add:failed")
+                return("failed")
 
             if('type' not in params):
                 self.Log("cannot run add command, must specify \"type\"")
-                return("add:failed")
+                return("failed")
             
             # get device name, mac addr, and type
             device_name = params['name']
@@ -833,36 +833,36 @@ class Home():
             success = self.Add_device(device_name, mac, device_type)
             
             if(success):
-                return(command + ":ok")
+                return("ok")
             else:
-                return(command + ":failed")
+                return("failed")
         
         # remove a device
         elif(command == "remove_device"):
 
             if('name' not in params):
                 self.Log("cannot run remove command, must specify \"name\"")
-                return("remove:failed")
+                return("failed")
             
             device_name = params['name']
             
             success = self.Remove_device(device_name)
             
             if(success):
-                return(command + ":ok")
+                return("ok")
             else:
-                return(command + ":failed")
+                return("failed")
 
         # change a device name
         elif(command == "change_device_name"):
 
             if("name" not in params):
-                self.Log("cannot run change_name command, must specify \"name\"")
-                return(command + ":failed")
+                self.Log("cannot run change_device_name command, must specify \"name\"")
+                return("failed")
 
             if("new_name" not in params):
-                self.Log("cannot run change_name command, must specify \"new_name\"")
-                return(command + ":failed")
+                self.Log("cannot run change_device_name command, must specify \"new_name\"")
+                return("failed")
 
             orig_name = params["name"]
             new_name = params["new_name"]
@@ -870,27 +870,27 @@ class Home():
             success = self.Change_device_name(orig_name, new_name)
 
             if(success):
-                return(command + ":ok")
+                return("ok")
             else:
-                return(command + ":failed")
+                return("failed")
 
         # discover devices
         elif(command == "discover_devices"):
             self.Send_discovery_packet()
-            return(command + ":ok")
+            return("ok")
             
         # add a task
         elif(command == "add_task"):
             success = self.Add_task(params)
 
             if(success):
-                return(command + ":ok")
+                return("ok")
             else:
-                return(command + ":failed")
+                return("failed")
 
         else:
             self.Log("recieved invalid command")
-            return("invalid command")
+            return("invalid")
 
     """
     Function: Log
