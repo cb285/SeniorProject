@@ -28,6 +28,8 @@ DEVICE_TYPES = [OUTLET_TYPE, LIGHT_TYPE]   # valid device types
 
 DEFAULT_TIMEOUT = 5 # seconds
 
+LIGHT_SET_TRIES = 200
+
 WAIT_TIME = 0.1
 
 XB_CONF_HIGH = b'\x05'
@@ -227,10 +229,10 @@ class Home():
                                         dpot_level = int(round(100*((samples[DPOT_OUT_SAMPLE_IDENT] / 1023.0) * 1.2)))
                                         
                                         # adjust the level
-                                        if(dpot_level > 100):
+                                        if(dpot_level > 98):
                                             dpot_level = 100
-                                        elif(dpot_level < 0):
-                                            dpot_level = 0
+                                        elif(dpot_level <= 0):
+                                            dpot_level = 1
 
                                         # return level
                                         # turn off sampling
@@ -261,7 +263,7 @@ class Home():
         
         # get current device level
         curr_level = self.Sample_device(device_name)
-
+        
         # check if got a sample
         if(curr_level == LEVEL_UNK):
             self.Log("could not set device \"" + device_name +"\" level to " + str(level) + ", could not communicate with module")
@@ -306,12 +308,12 @@ class Home():
             self._zb.remote_at(dest_addr_long=device_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
 
     def _Set_light(self, device_name, curr_level, level):
-        
+
         # get db lock
         with self._db_lock:
             # get device mac
             bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
-
+            
         # get zigbee lock
         with self._zb_lock:
             
@@ -320,42 +322,58 @@ class Home():
                 self._Toggle_relay(device_name)
                 
                 curr_level = self.Sample_device(device_name)
-                
-            # set D flip flop CLR# to low (cleared)
-            self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
+            try:
+                # set D flip flop CLR# to low (cleared)
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
 
-            # if light is too bright
-            if(curr_level > level):
+                # if light is too bright
+                if(curr_level > level):
+                    
+                    # set U/D# to low (down)
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
+                    
+                    num_tries = 0
+                    
+                    # while the light is too bright
+                    while(level < self.Sample_device(device_name)):
+                        # decrement the dpot
+                        # set INC# high
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+                        # set INC# low
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+                        
+                        num_tries += 1
+                        
+                        if(num_tries >= LIGHT_SET_TRIES):
+                            self.Log("could not set light to desired level, giving up.")
+                            break
+                        
+                # light is too dim
+                else:
+                    # set U/D# to high (up)
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
+                    
+                    num_tries = 0
+                    
+                    # while the light is too dim
+                    while(self.Sample_device(device_name) < level):
+                        # increment the dpot
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
+                        # set INC# low
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+                                                
+                        num_tries += 1
+                        
+                        if(num_tries >= LIGHT_SET_TRIES):
+                            self.Log("could not set light to desired level, giving up.")
+                            break
 
-                # set U/D# to low (down)
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
-
-                # while the light is too bright
-                while(level < self.Sample_device(device_name)):
-                    # decrement the dpot
-                    # set INC# high
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
-                    # set INC# low
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
-
-            # light is too dim
-            else:
-                # set U/D# to high (up)
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
-
-                # while the light is too dim
-                while(self.Sample_device(device_name) < level):
-                    # increment the dpot
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
-                    # set INC# low
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
+            finally:
+                # set D flip flop CLR# to high (not cleared)
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
 
                 # set U/D# back to low
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
-
-            # set D flip flop CLR# to high (not cleared)
-            self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
-            
     """
     Function: Name_in_db
     given device name
@@ -552,9 +570,6 @@ class Home():
     """
     def Recv_handler(self, packet):
 
-        #self.Log("receved packet:")
-        #self.Log(str(packet))
-
         # acquire process packets lock
         acquired = self._process_packets_lock.acquire(blocking=False)
 
@@ -602,7 +617,7 @@ class Home():
                         
                         if(success):
                             self.Log("discovered device with mac \"" + device_mac + "\" of type \"" + device_type + "\"")
-                            self.Log("device named \"" + node_identifier + "\", use change_name command to change it to a better name")
+                            self.Log("device named \"" + node_identifier + "\", use change_device_name command to change it to a better name")
                             return
                         else:
                             self.Log("failed to add discovered device to db")
@@ -746,8 +761,6 @@ class Home():
     commands = test, get(level), set(level), add(name, mac, type), remove(name)
     """
     def Run_command(self, params):
-
-        self.Log("running command: " + str(params))
         
         if("task_id" in params):
             self.Log("executing task \"" + params["task_id"] + "\"")
@@ -878,7 +891,20 @@ class Home():
         elif(command == "discover_devices"):
             self.Send_discovery_packet()
             return("ok")
+
+        # list devices
+        elif(command == "ls_devices"):
+
+            device_list = ""
+
+            if(len(self._device_db) == 0):
+                return ("none")
             
+            for k in self._device_db:
+                device_list = device_list + "," + k
+
+            return (device_list)
+        
         # add a task
         elif(command == "add_task"):
             success = self.Add_task(params)
