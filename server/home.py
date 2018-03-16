@@ -30,7 +30,7 @@ OUTLET_TYPE = "outlet"
 LIGHT_TYPE = "light"
 DEVICE_TYPES = [OUTLET_TYPE, LIGHT_TYPE]   # valid device types
 
-DEFAULT_TIMEOUT = 5 # seconds
+DEFAULT_TIMEOUT = 2 # seconds
 
 LIGHT_SET_TRIES = 200
 
@@ -239,10 +239,14 @@ class Home():
                 self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x0FF');
 
                 for x in range(3):
-                    
-                    # wait for a packet
-                    packet = self._packet_queue.get(block=True, timeout=timeout)
-                    
+
+                    try:
+                        # wait for a packet
+                        packet = self._packet_queue.get(block=True, timeout=timeout)
+
+                    except Empty:
+                        packet = False
+                        
                     # check if didn't receive packet
                     if(not packet):
                         self.Log("could not get sample from device \"" + device_name + "\", check the device")
