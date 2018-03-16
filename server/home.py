@@ -15,6 +15,10 @@ DEVICE_DB_FILENAME = "devices.json"        # path to device db file
 TASKS_DB_FILENAME = "sqlite:///tasks.db"   # path to task db file
 LOG_FILENAME = "thelog.log"                # log filename
 LOG_TIMESTAMP = "%Y-%m-%d %H:%M:%S"        # timestamp format for logging
+POWER_TIMESTAMP = LOG_TIMESTAMP
+
+POWER_LOG_FILENAME = "power_usage.csv"
+POWER_LOG_INTERVAL = 10 # interval in minutes
 
 SETUP_WAIT = 5                             # time in seconds to wait for samples to be received on server startup
 DISCOVERY_INTERVAL = 5                     # time in minutes between network discovery packet sends
@@ -57,8 +61,22 @@ DFLIPCLR_N = 'D5'
 DPOT_OUT = 'D3'
 DPOT_OUT_SAMPLE_IDENT = 'adc-3'
 
+"""
+# current sense adc pin
+CURRSENSE_OUT = 'D2'
+CURRSENSE_SAMPLE_IDENT = 'adc-2'
+
+# current sense values:
+# voltage bias
+CURRSENSE_BIAS = 0.7
+# diode drop
+CURRSENSE_DDROP = 0.5
+# ac voltage
+AC_VOLTAGE = 120
+"""
+
 class Home():
-    def __init__(self, task_function):
+    def __init__(self, task_function, power_usage_function):
         # setup logging
         logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG)
         self.Log("starting server, please wait...")
@@ -114,9 +132,9 @@ class Home():
                 # start scheduler
                 self._sched.start()
 
-                # add network discovery task (self.Discover_devices)
-                self._sched.add_job(self.Send_discovery_packet, trigger='interval', minutes=DISCOVERY_INTERVAL, replace_existing=True, id=DISCOVERY_TASKID)
-
+                # start power usage logger task
+                #self._sched.add_job(power_usage_function, trigger='interval', minutes=POWER_LOG_INTERVAL, id=task_id, replace_existing=True)
+                
                 # store task_function for using when adding tasks
                 self._task_function = task_function
                 
@@ -142,7 +160,59 @@ class Home():
     def Bytes2mac(self, mac):
         return mac.hex()
 
-    def Sample_device(self, device_name, timeout=DEFAULT_TIMEOUT, num_tries=3):
+    def Get_power_usage(self, device_name):
+
+        # sample device's current sense pin
+        sample_val = Sample_device(device_name, get_current=True)
+
+        # if could not get sample
+        if(sample_val == LEVEL_UNK):
+            return LEVEL_UNK
+
+        # convert to voltage
+        sample_voltage = (sample_val / 1023.0) * 1.2
+
+        # convert to ac current amplitude (mA)
+        ac_current = ((sample_voltage - CURRSENSE_BIAS + CURRSENSE_DDROP) / 66.66)
+
+        # calculate apparent power (mVA)
+        apparent_power = ac_current*AC_VOLTAGE
+
+        # get power factor
+        with self._db_lock:
+            if("power_factor" in self._device_db[device_name]):
+                power_factor = self._device_db[device_name]["power_factor"]
+
+            # assume reative if not specified
+            else:
+                power_factor = 1.0
+
+        # return approximate real power (mW)
+        return int(round(apparent_power * power_factor))
+
+    def Log_power_usages(self):
+
+        # get database lock
+        with self._db_lock:
+
+            # if file is not already created
+            if(not os.path.isfile(POWER_LOG_FILENAME)):
+                with open(POWER_LOG_FILENAME, 'a+') as f:
+                    f.write("time, device_name, power_usage\n")
+
+            # open power log file
+            with open(POWER_LOG_FILENAME, 'a+') as f:
+            
+                # for each device in database
+                for device_name in self._device_db:
+                    
+                    # get current power usage
+                    power_usage = Get_power_usage(device_name)
+
+                    # add line to csv
+                    f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + power_usage + "\n")
+    
+    def Sample_device(self, device_name, get_current=False, timeout=DEFAULT_TIMEOUT)
 
         # get db lock
         with self._db_lock:
@@ -168,7 +238,7 @@ class Home():
                 # request sample (periodic sampling every 255 ms)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x0FF');
 
-                for x in range(num_tries):
+                for x in range(3):
                     
                     # wait for a packet
                     packet = self._packet_queue.get(block=True, timeout=timeout)
@@ -192,7 +262,17 @@ class Home():
                     # check if sample packet
                     if("samples" in packet):                        
                         samples = packet["samples"][0]
-                        
+
+                        # if current sense value is desired
+                        if(get_current):
+                            if(CURR_SENSE_SAMPLE_IDENT in samples):
+
+                                # turn off sampling
+                                self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
+
+                                # return current level
+                                return samples[CURRSENSE_SAMPLE_IDENT]
+                                
                         # if outlet device
                         if(device_type == OUTLET_TYPE):
                             # get relay status
@@ -469,7 +549,10 @@ class Home():
             if(device_type in [OUTLET_TYPE, LIGHT_TYPE]):
                 # set RELAY_STATUS (D1) to input
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_DINPUT)
-                
+
+                # set CURRSENSE_OUT (D3) to analog input
+                #self._zb.remote_at(dest_addr_long=bytes_mac, command=CURRSENSE_OUT, parameter=XB_CONF_ADC)
+
                 # set RELAY_TOGGLE (D0) to output low
             self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
 
@@ -931,8 +1014,11 @@ def Run_task(task):
     global myhome
     myhome.Run_command(task)
 
+def Log_power_usages():
+    global myhome
+    myhome.Log_power_usages()
 
-myhome = Home(task_function=Run_task)
+myhome = Home(task_function=Run_task, power_usage_function=Log_power_usages)
 
 if(__name__ == "__main__"):
     print("this is a library. import it to use it")
