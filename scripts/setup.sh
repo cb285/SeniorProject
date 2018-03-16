@@ -14,9 +14,11 @@ pip install requests
 # server
 pip3 install Flask
 pip3 install Flask-BasicAuth
-pip3 install pyopenssl
 pip3 install apscheduler
 pip3 install SQLAlchemy
+
+apt install openssl
+pip3 install pyopenssl
 
 pip3 install XBee
 

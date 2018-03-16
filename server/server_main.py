@@ -5,7 +5,10 @@ from flask import Flask, request
 from flask_basicauth import BasicAuth
 from home import myhome
 
-PORT = 5002
+PORT = 58000
+
+USER = 'clayton'
+PASS = 'clayton'
 
 def main(args):
     # get instance of home server
@@ -13,7 +16,14 @@ def main(args):
     
     # setup http request handler
     app = Flask(__name__)
+
+    app.config['BASIC_AUTH_USERNAME'] = USER
+    app.config['BASIC_AUTH_PASSWORD'] = PASS
+    app.config['BASIC_AUTH_FORCE'] = True
+    basic_auth = BasicAuth(app)
+    
     @app.route('/',methods=['GET', 'POST'])
+    @basic_auth.required
     def req_handler():
         # check if json format
         if(request.is_json):
@@ -27,7 +37,7 @@ def main(args):
         return(myhome.Run_command(params))
 
     # start http server
-    app.run(host='0.0.0.0', port=PORT) #, ssl_context='adhoc')
+    app.run(host='0.0.0.0', port=PORT, ssl_context=('cert.pem', 'key.pem'))
 
 if(__name__ == "__main__"):
     main(sys.argv)
