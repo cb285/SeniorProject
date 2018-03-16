@@ -1,6 +1,7 @@
 from requests import *
 
-SERVER_URL = "https://clayton03.localtunnel.me"
+SERVER_URL = "https://clayton:clayton@192.195.228.50:58000"
+VERIFY_SSL = False
 
 def lambda_handler(event, context):
     
@@ -90,11 +91,11 @@ def lambda_handler(event, context):
                         
                         if(level != -1):
                             if(level == 100):
-                                return build_response("your device called " + device_name + " is on")
+                                return build_response(device_name + " is currently on")
                             elif(level == 0):
-                                return build_response("your device called " + device_name + " is off")
+                                return build_response(device_name + " is currently off")
                             else:
-                                return build_response("your device called " + device_name + " is set to " + str(level))
+                                return build_response(device_name + " is currently set to " + str(level) + " percent")
                                 
                         else:
                             return build_response("sorry, I couldn't reach that device. please check that it is turned on and in the database.")
@@ -121,7 +122,7 @@ def lambda_handler(event, context):
                         return build_response("sorry, I couldn't understand that. here's an example: set the temperature to 70 degrees")
                 
                     
-    return build_response("sorry, I couldn't understand that. please try again.")
+    return build_response("sorry, I couldn't understand that. please try again. here's an example: set my light to 84.")
 
 import requests
 
@@ -143,7 +144,7 @@ def server_request(payload):
 
     payload['alexa'] = "alexa"
 
-    r = requests.get(SERVER_URL, params=payload)
+    r = requests.get(SERVER_URL, params=payload, verify=False)
     
     response = r.text
     
