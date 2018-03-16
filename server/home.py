@@ -212,7 +212,7 @@ class Home():
                     # add line to csv
                     f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + power_usage + "\n")
     
-    def Sample_device(self, device_name, get_current=False, timeout=DEFAULT_TIMEOUT)
+    def Sample_device(self, device_name, get_current=False, timeout=DEFAULT_TIMEOUT):
 
         # get db lock
         with self._db_lock:
@@ -309,7 +309,7 @@ class Home():
                                         dpot_level = int(round(100*((samples[DPOT_OUT_SAMPLE_IDENT] / 1023.0) * 1.2)))
                                         
                                         # adjust the level
-                                        if(dpot_level > 98):
+                                        if(dpot_level >= 95):
                                             dpot_level = 100
                                         elif(dpot_level <= 0):
                                             dpot_level = 1
@@ -416,6 +416,7 @@ class Home():
                     
                     # while the light is too bright
                     while(level < self.Sample_device(device_name)):
+                        
                         # decrement the dpot
                         # set INC# high
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
@@ -437,6 +438,7 @@ class Home():
                     
                     # while the light is too dim
                     while(self.Sample_device(device_name) < level):
+                        
                         # increment the dpot
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
                         # set INC# low
