@@ -13,7 +13,7 @@ from queue import *
 
 DEVICE_DB_FILENAME = "devices.json"        # path to device db file
 TASKS_DB_FILENAME = "sqlite:///tasks.db"   # path to task db file
-LOG_FILENAME = "thelog.log"                # log filename
+LOG_FILENAME = "home_server.log"           # log filename
 LOG_TIMESTAMP = "%Y-%m-%d %H:%M:%S"        # timestamp format for logging
 POWER_TIMESTAMP = LOG_TIMESTAMP
 
