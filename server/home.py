@@ -1017,7 +1017,7 @@ class Home():
     """
     def Log(self, logstr):
         self._log.info(logstr)
-        print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
+        #print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
 
 def Run_task(task):
     global myhome
