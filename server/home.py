@@ -12,14 +12,14 @@ from threading import *
 from apscheduler.schedulers.background import BackgroundScheduler
 from queue import *
 
-DEVICE_DB_FILENAME = "/opt/home/server/devices.json"               # path to device db file
-TASKS_DB_FILENAME = "sqlite:////opt/home/server/tasks.db"          # path to task db file
-LOG_FILENAME = "/opt/home/server/home_server.log" # log filename
+DEVICE_DB_FILENAME = "devices.json"               # path to device db file
+TASKS_DB_FILENAME = "sqlite:///tasks.db"          # path to task db file
+LOG_FILENAME = "home_server.log" # log filename
 LOG_FORMAT = '%(asctime)s : %(name)s : %(message)s'
 LOG_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
 POWER_TIMESTAMP = LOG_TIMESTAMP
 
-POWER_LOG_FILENAME = "/opt/home/server/power_usage_log.csv"
+POWER_LOG_FILENAME = "power_usage_log.csv"
 POWER_LOG_INTERVAL = 10 # interval in minutes
 
 SETUP_WAIT = 5                             # time in seconds to wait for samples to be received on server startup
