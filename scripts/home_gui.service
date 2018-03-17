@@ -1,9 +1,11 @@
 [Unit]
-Description=homectrl_gui
-After=network.target localtunnel.service homectrl_server.service
+Description=home_gui
+After=network.target homectrl_server.service
 
 [Service]
-ExecStart=/opt/homectrl/gui/gui_main.py
+User=pi
+Group=pi
+ExecStart=/opt/home/gui/gui_main.py
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=process
 Restart=on-failure
