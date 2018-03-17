@@ -13,7 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from queue import *
 
 DEVICE_DB_FILENAME = "/opt/home/server/devices.json"               # path to device db file
-TASKS_DB_FILENAME = "sqlite:///opt/home/server/tasks.db"          # path to task db file
+TASKS_DB_FILENAME = "sqlite:////opt/home/server/tasks.db"          # path to task db file
 LOG_FILENAME = "/opt/home/server/home_server.log" # log filename
 LOG_FORMAT = '%(asctime)s : %(name)s : %(message)s'
 LOG_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
