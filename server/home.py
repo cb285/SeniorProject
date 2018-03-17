@@ -6,6 +6,7 @@ import json
 from xbee import ZigBee
 import serial
 import logging
+from systemd.journal import JournalHandler
 import time
 from threading import *
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -78,7 +79,11 @@ AC_VOLTAGE = 120
 class Home():
     def __init__(self, task_function, power_usage_function):
         # setup logging
-        logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG)
+        logging.basicConfig(filename=LOG_FILENAME, level=logging.INFO)
+
+        # add logging to journald (systemd)
+        log.addHandler(JournalHandler())
+        
         self.Log("starting server, please wait...")
 
         # setup task scheduler
@@ -1013,7 +1018,7 @@ class Home():
     """
     def Log(self, s):
         logstr = time.strftime(LOG_TIMESTAMP) + ": " + s + "\n"
-        logging.debug(logstr)
+        logging.info(logstr)
         print(logstr, end="")
 
 def Run_task(task):
