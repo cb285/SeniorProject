@@ -12,10 +12,10 @@ from threading import *
 from apscheduler.schedulers.background import BackgroundScheduler
 from queue import *
 
-DEVICE_DB_FILENAME = "devices.json"        # path to device db file
-TASKS_DB_FILENAME = "sqlite:///tasks.db"   # path to task db file
-LOG_FILENAME = "home_server.log"           # log filename
-LOG_TIMESTAMP = "%Y-%m-%d %H:%M:%S"        # timestamp format for logging
+DEVICE_DB_FILENAME = "devices.json"               # path to device db file
+TASKS_DB_FILENAME = "sqlite:///tasks.db"          # path to task db file
+LOG_FILENAME = "/opt/home/server/home_server.log" # log filename
+LOG_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
 POWER_TIMESTAMP = LOG_TIMESTAMP
 
 POWER_LOG_FILENAME = "power_usage.csv"
@@ -80,9 +80,8 @@ class Home():
     def __init__(self, task_function, power_usage_function):
         # setup logging
         logging.basicConfig(filename=LOG_FILENAME, level=logging.INFO)
-
-        # add logging to journald (systemd)
-        log.addHandler(JournalHandler())
+        self._log = logging.getLogger('home')
+        self._log.addHandler(JournalHandler())
         
         self.Log("starting server, please wait...")
 
@@ -1016,10 +1015,9 @@ class Home():
     Function: Log
     prints string to console and log file with a timestamp
     """
-    def Log(self, s):
-        logstr = time.strftime(LOG_TIMESTAMP) + ": " + s + "\n"
-        logging.info(logstr)
-        print(logstr, end="")
+    def Log(self, logstr):
+        self._log.info(logstr)
+        print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
 
 def Run_task(task):
     global myhome
