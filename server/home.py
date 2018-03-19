@@ -3,6 +3,7 @@
 import sys
 import os
 import json
+import atexit
 from xbee import ZigBee
 import serial
 import logging
@@ -12,70 +13,20 @@ from threading import *
 from apscheduler.schedulers.background import BackgroundScheduler
 from queue import *
 
-DEVICE_DB_FILENAME = "devices.json"               # path to device db file
-TASKS_DB_FILENAME = "sqlite:///tasks.db"          # path to task db file
-LOG_FILENAME = "home_server.log" # log filename
-LOG_FORMAT = '%(asctime)s : %(name)s : %(message)s'
-LOG_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
-POWER_TIMESTAMP = LOG_TIMESTAMP
+from thermostat_constants import *
+from logging_constants import *
+from xbee_constants import *
 
-POWER_LOG_FILENAME = "power_usage_log.csv"
-POWER_LOG_INTERVAL = 10 # interval in minutes
-
-SETUP_WAIT = 5                             # time in seconds to wait for samples to be received on server startup
-DISCOVERY_INTERVAL = 5                     # time in minutes between network discovery packet sends
-DISCOVERY_TASKID = "_discovery_task"       # task id to use for network discovery task
-
-LEVEL_UNK = -1                             # special device level used to mean level is unknown
+DEVICE_DB_FILENAME = ".devices.json"               # path to device db file
+TASKS_DB_FILENAME = "sqlite:///.tasks.db"          # path to task db file
+THERM_SETTINGS_FILENAME = ".thermostat.json"       # path to thermostat settings file
+SETUP_WAIT = 5                                     # time in seconds to wait for samples to be received on server startup
+DISCOVERY_TASKID = "_discovery_task"               # task id to use for network discovery task
+LEVEL_UNK = -1                                     # special device level used to mean level is unknown
 
 OUTLET_TYPE = "outlet"
 LIGHT_TYPE = "light"
 DEVICE_TYPES = [OUTLET_TYPE, LIGHT_TYPE]   # valid device types
-
-DEFAULT_TIMEOUT = 2 # seconds
-
-LIGHT_SET_TRIES = 200
-
-WAIT_TIME = 0.1
-
-XB_CONF_HIGH = b'\x05'
-XB_CONF_LOW = b'\x04'
-XB_CONF_DINPUT = b'\x03'
-XB_CONF_ADC = b'\x02'
-
-# relay toggle (toggles relay on a rising edge)
-RELAY_TOGGLE = 'D0'
-
-# relay status
-RELAY_STAT = 'D1'
-RELAY_STAT_SAMPLE_IDENT = 'dio-1'
-
-# number of DPOT positions
-DPOT_NUM_POS = 100
-# DPOT INC# pin
-DPOT_INC_N = 'D2'
-# DPOT U/D# pin
-DPOT_UD_N = 'D4'
-# D flip flop clear (clears CS#)
-DFLIPCLR_N = 'D5'
-
-# DPOT output pin
-DPOT_OUT = 'D3'
-DPOT_OUT_SAMPLE_IDENT = 'adc-3'
-
-"""
-# current sense adc pin
-CURRSENSE_OUT = 'D2'
-CURRSENSE_SAMPLE_IDENT = 'adc-2'
-
-# current sense values:
-# voltage bias
-CURRSENSE_BIAS = 0.7
-# diode drop
-CURRSENSE_DDROP = 0.5
-# ac voltage
-AC_VOLTAGE = 120
-"""
 
 class Home():
     def __init__(self, task_function, power_usage_function):
@@ -83,9 +34,6 @@ class Home():
         logging.basicConfig(filename=LOG_FILENAME, level=logging.INFO, format=LOG_FORMAT, datefmt=LOG_TIMESTAMP)
         self._log = logging.getLogger('home')
         self._log.addHandler(JournalHandler())
-        
-        #formatter = logging.Formatter()
-        #self._log.setFormatter(formatter)
         
         self.Log("starting server, please wait...")
 
@@ -105,10 +53,28 @@ class Home():
         # create queue for holding pending packets
         self._packet_queue = Queue(maxsize=10)
 
-        # acquire locks
+        # create lock for thermostat io and settings access
+        self._therm_lock = RLock()
+
+        # create lock for i2c access
+        self._i2c_lock = RLock()
+        
+        # acquire thermostat lock
+        with self._thermo_lock:
+
+            # load/create thermostat settings file
+            if not (os.path.isfile(THERM_SETTINGS_FILENAME)):  # check if need to create db file
+                self.Log(THERM_SETTINGS_FILENAME + " file doesn't exist, creating a new one")
+                self._device_db = dict()
+                
+            else:
+                with open(THERM_SETTINGS_FILENAME) as f:
+                    self._device_db = json.load(f)
+                self.Log("opened existing thermostat settings file " + THERM_SETTINGS_FILENAME)
+
+        # acquire zigbee and device database locks
         with self._zb_lock:
             with self._db_lock:
-
                 # setup connection to zigbee module
                 ser = serial.Serial()
                 ser.port = "/dev/ttyS0"
@@ -124,10 +90,8 @@ class Home():
                 
                 # load/create db file
                 if not (os.path.isfile(DEVICE_DB_FILENAME)):  # check if need to create db file
-                    self.Log(DEVICE_DB_FILENAME + " file doesn't exist, creating it.")
+                    self.Log(DEVICE_DB_FILENAME + " file doesn't exist, creating a new one")
                     self._device_db = dict()
-                    # save db to file
-                    self._Save_db()
 
                 else:
                     with open(DEVICE_DB_FILENAME) as f:
@@ -145,29 +109,185 @@ class Home():
                 
                 # store task_function for using when adding tasks
                 self._task_function = task_function
+
+                # setup shutdown proceedure
+                atexit.register(self.Exit)
                 
                 self.Log("server ready!")
 
-    def _Save_db(self):
+    def Exit(self):
 
+        # log
+        self.Log("shutdown procedure started")
+        
+        # write device database to file
         # get db lock
         with self._db_lock:
-            
             # dump db to file
             with open(DEVICE_DB_FILENAME, 'w') as f:
                 json.dump(self._device_db, f)
 
-    """
-    Function: Mac2bytes
-    receives a string of 16 hex characters (mac address)
-    returns a bytearray usable by ZigBee API
-    """
-    def Mac2bytes(self, mac):
-        return bytearray.fromhex(mac)
+        # write thermostat settings to file
+        # get thermostat lock
+        with self._therm_lock:
+            # dump db to file
+            with open(THERM_SETTINGS_FILENAME, 'w') as f:
+                json.dump(self._therm_settings, f)
 
-    def Bytes2mac(self, mac):
-        return mac.hex()
+        # close serial connection
+        with self._zb_lock:
+            self._ser.close()
 
+        # log
+        self.Log("shutdown procedure complete")
+
+    def Initialize_therm_settings(self):
+
+        with self._therm_lock:
+
+            # temp mode
+            self._therm_settings["temp_mode"] = INIT_TEMP_MODE
+            
+            # fan mode
+            self._therm_settings["fan_mode"] = INIT_FAN_MODE
+
+            # set temp
+            self._therm_settings["set_temp"] = INIT_SET_TEMP
+
+            # temp diffs
+            self._therm_settings["lower_diff"] = INIT_LOWER_DIFF
+            self._therm_settings["upper_diff"] = INIT_UPPER_DIFF
+        
+    def Get_curr_temp(self, units=DEFAULT_TEMP_UNITS):
+
+        # acquire i2c lock
+        with self._i2c_lock:
+            # read adc
+            pass
+        
+        # convert to degrees F
+        curr_temp_f = 70
+
+        return self.Convert_temp(curr_temp_f, "F", units)
+
+    def Get_set_temp(self, units=DEFAULT_TEMP_UNITS):
+
+        # acquire lock
+        with self._therm_lock:
+            # get set temperature from settings
+            set_temp_f = self._therm_settings["set_temp"]
+
+        return self.Convert_temp("F", units)
+
+    def Set_temp(self, temp, units=DEFAULT_TEMP_UNITS):
+
+        temp_f = self.Convert_temp(temp, units, "F")
+
+        with self._therm_lock:
+            self._them_settings["set_temp"] = temp_f
+
+        return True
+
+    @staticmethod
+    def Convert_temp(temp, from_units, to_units):
+
+        if(from_units == to_units):
+            return temp
+
+        if(from_units == "F"):
+            temp_f = temp
+        elif(from_units == "C"):
+            temp_f = (9.0/5.0)*temp + 32
+        elif(from_units == "K"):
+            temp_f = (9.0/5.0)*(temp - 273) + 32
+        else:
+            raise Exception("invalid from units specified")
+
+        if(to_units == "F"):
+            return temp_f
+        elif(to_units == "C"):
+            return (5.0/9.0)*(temp_f-32)
+        elif(to_units == "K"):
+            return (5.0/9.0)*(temp_f-32) + 273
+        else:
+            raise Exception("invalid to units specified")
+
+    def Set_temp_lower_diff(self, lower_diff, units=DEFAULT_TEMP_UNITS):
+
+        lower_diff_f = self.Convert_temp(lower_diff, units, "F")
+
+        with self._therm_lock:
+            self._therm_settings["lower_diff"] = lower_diff_f
+
+        return True
+
+    def Set_temp_upper_diff(self, upper_diff, units=DEFAULT_TEMP_UNITS):
+
+        upper_diff_f = self.Convert_temp(upper_diff, units, "F")
+
+        with self._therm_lock:
+            self._therm_settings["upper_diff"] = upper_diff_f
+
+        return True
+
+    def Set_temp_mode(self, temp_mode):
+
+        if(temp_mode not in ["heat", "cool", "off"]):
+            self.Log("invalid temp_mode: " + str(temp_mode))
+            return False
+        
+        with self._therm_lock:
+            self._therm_settings["temp_mode"] = temp_mode
+
+        return True
+
+    def Set_fan_mode(self, fan_mode):
+
+        if(fan_mode not in ["off", "on", "auto"]):
+            self.Log("invalid temp_mode: " + str(temp_mode))
+            return False
+        
+        with self._therm_lock:
+            self._therm_settings["temp_mode"] = temp_mode
+
+        return True
+    
+    def Get_temp_mode(self):
+
+        with self._therm_lock:
+            return self._therm_settings["temp_mode"]
+
+    def Get_fan_mode(self):
+
+        with self._therm_lock:
+            return self._therm_settings["fan_mode"]
+
+    def Log_temperatures(self, units=DEFAULT_TEMP_UNITS):
+
+        # if file is not already created
+        if(not os.path.isfile(TEMP_LOG_FILENAME)):
+            with open(TEMP_LOG_FILENAME, 'a+') as f:
+                f.write("time, temperature, units\n")
+
+        # open power log file
+        with open(TEMP_LOG_FILENAME, 'a+') as f:
+
+            # for each device in database
+            for device_name in self._device_db:
+                
+                # get current power usage
+                curr_temp = self.Get_curr_temp(units)
+                
+                # add line to csv
+                f.write(time.strftime(TEMP_TIMESTAMP) + "," + curr_temp + "," + units + "\n")
+
+    def Thermostat_handler(self):
+
+        with self._therm_lock:
+
+            # get current temperature
+            curr_temp_f = self.Get_curr_temp(units="F")
+            
     def Get_power_usage(self, device_name):
 
         # sample device's current sense pin
@@ -219,7 +339,18 @@ class Home():
 
                     # add line to csv
                     f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + power_usage + "\n")
-    
+
+        """
+    Function: Mac2bytes
+    receives a string of 16 hex characters (mac address)
+    returns a bytearray usable by ZigBee API
+    """
+    def Mac2bytes(self, mac):
+        return bytearray.fromhex(mac)
+
+    def Bytes2mac(self, mac):
+        return mac.hex()
+                    
     def Sample_device(self, device_name, get_current=False, timeout=DEFAULT_TIMEOUT):
 
         # get db lock
@@ -597,9 +728,6 @@ class Home():
             # add to db dict
             self._device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type}
 
-            # update db file
-            self._Save_db()
-
             self.Log("added device \"" + device_name + "\" of type \"" + device_type + "\" to db")
             return True
 
@@ -618,9 +746,6 @@ class Home():
 
             # remove from db
             del(self._device_db[device_name])
-
-            # update db file
-            self._Save_db()
 
             self.Log("removed device \"" + device_name + "\" from db")
             return True
@@ -653,9 +778,6 @@ class Home():
             # add new device name to db
             saved_device["name"] = new_name
             self._device_db[new_name] = saved_device
-            
-            # update db file
-            self._Save_db()
                 
             self.Log("changed device name from \"" + orig_name + "\" to \"" + new_name + "\"")
             return True
@@ -990,7 +1112,7 @@ class Home():
             return("ok")
 
         # list devices
-        elif(command == "ls_devices"):
+        elif(command == "list_devices"):
 
             device_list = ""
 
@@ -1001,7 +1123,7 @@ class Home():
                 device_list = device_list + "," + k
 
             return (device_list)
-        
+
         # add a task
         elif(command == "add_task"):
             success = self.Add_task(params)
