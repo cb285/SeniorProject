@@ -12,6 +12,8 @@ import time
 from threading import *
 from apscheduler.schedulers.background import BackgroundScheduler
 from queue import *
+import RPi.GPIO as gpio
+gpio.setmode(GPIO.BCM) # set gpio numbering mode to BCM
 
 from thermostat_constants import *
 from logging_constants import *
@@ -21,15 +23,19 @@ DEVICE_DB_FILENAME = ".devices.json"               # path to device db file
 TASKS_DB_FILENAME = "sqlite:///.tasks.db"          # path to task db file
 THERM_SETTINGS_FILENAME = ".thermostat.json"       # path to thermostat settings file
 SETUP_WAIT = 5                                     # time in seconds to wait for samples to be received on server startup
-DISCOVERY_TASKID = "_discovery_task"               # task id to use for network discovery task
+DISCOVERY_TASKID = "__discovery_task_"               # task id to use for network discovery task
 LEVEL_UNK = -1                                     # special device level used to mean level is unknown
 
 OUTLET_TYPE = "outlet"
 LIGHT_TYPE = "light"
 DEVICE_TYPES = [OUTLET_TYPE, LIGHT_TYPE]   # valid device types
 
+POWER_LOG_TASKID = "__power_logger_task__"
+TEMP_LOG_TASKID = "__temp_logger_task__"
+THERM_TASKID = "__therm_task__"
+
 class Home():
-    def __init__(self, task_function, power_usage_function):
+    def __init__(self, thermostat_function, task_function, power_usage_function):
         # setup logging
         logging.basicConfig(filename=LOG_FILENAME, level=logging.INFO, format=LOG_FORMAT, datefmt=LOG_TIMESTAMP)
         self._log = logging.getLogger('home')
@@ -41,79 +47,35 @@ class Home():
         self._sched = BackgroundScheduler()
         self._sched.add_jobstore('sqlalchemy', url=TASKS_DB_FILENAME)
 
-        # create lock for xbee access
-        self._zb_lock = RLock()
-
-        # create lock for device_db access
-        self._db_lock = RLock()
-
-        # create lock for permission to process packets
-        self._process_packets_lock = RLock()
-
-        # create queue for holding pending packets
-        self._packet_queue = Queue(maxsize=10)
-
-        # create lock for thermostat io and settings access
-        self._therm_lock = RLock()
-
         # create lock for i2c access
         self._i2c_lock = RLock()
+
+        # set up thermostat relay GPIO
+        self._Setup_therm()
+
+        # send discovery packet
+        self.Send_discovery_packet()
         
-        # acquire thermostat lock
-        with self._thermo_lock:
+        # start scheduler
+        self._sched.start()
+        
+        # start power usage logger task
+        #self._sched.add_job(power_log_function, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
 
-            # load/create thermostat settings file
-            if not (os.path.isfile(THERM_SETTINGS_FILENAME)):  # check if need to create db file
-                self.Log(THERM_SETTINGS_FILENAME + " file doesn't exist, creating a new one")
-                self._device_db = dict()
-                
-            else:
-                with open(THERM_SETTINGS_FILENAME) as f:
-                    self._device_db = json.load(f)
-                self.Log("opened existing thermostat settings file " + THERM_SETTINGS_FILENAME)
+        # start temperature logger task
+        self._sched.add_job(temp_log_function, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
 
-        # acquire zigbee and device database locks
-        with self._zb_lock:
-            with self._db_lock:
-                # setup connection to zigbee module
-                ser = serial.Serial()
-                ser.port = "/dev/ttyS0"
-                ser.baudrate = 9600
-                ser.timeout = 3
-                ser.write_timeout = 3
-                ser.exclusive = True
-                ser.open()
+        # start thermostat updater task
+        self._sched.add_job(thermostat_update_function, trigger='interval', minutes=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
 
-                self._ser = ser
+        # store task_function for adding tasks
+        self._task_function = task_function
 
-                self._zb = ZigBee(ser, escaped=True, callback=self.Recv_handler)
-                
-                # load/create db file
-                if not (os.path.isfile(DEVICE_DB_FILENAME)):  # check if need to create db file
-                    self.Log(DEVICE_DB_FILENAME + " file doesn't exist, creating a new one")
-                    self._device_db = dict()
+        # register shutdown proceedure
+        atexit.register(self.Exit)
 
-                else:
-                    with open(DEVICE_DB_FILENAME) as f:
-                        self._device_db = json.load(f)
-                    self.Log("opened existing db " + DEVICE_DB_FILENAME)
-
-                # send discovery packet
-                self.Send_discovery_packet()
-
-                # start scheduler
-                self._sched.start()
-
-                # start power usage logger task
-                #self._sched.add_job(power_usage_function, trigger='interval', minutes=POWER_LOG_INTERVAL, id=task_id, replace_existing=True)
-                
-                # store task_function for using when adding tasks
-                self._task_function = task_function
-
-                # setup shutdown proceedure
-                atexit.register(self.Exit)
-                
-                self.Log("server ready!")
+        # setup complete
+        self.Log("server ready!")
 
     def Exit(self):
 
@@ -138,26 +100,97 @@ class Home():
         with self._zb_lock:
             self._ser.close()
 
+        # set gpio back to defaults
+        gpio.cleanup()
+            
         # log
         self.Log("shutdown procedure complete")
 
-    def Initialize_therm_settings(self):
+    def _Setup_zigbee(self):
+
+        # create lock for zigbee access
+        self._zb_lock = RLock()
+
+        # create lock for device_db access
+        self._db_lock = RLock()
+
+        # create lock for permission to process zigbee packets
+        self._process_packets_lock = RLock()
+
+        # create queue for holding pending zigbee packets
+        self._packet_queue = Queue(maxsize=10)
+
+        # setup serial connection to zigbee module
+        ser = serial.Serial()
+        ser.port = "/dev/ttyS0"
+        ser.baudrate = 9600
+        ser.timeout = 3
+        ser.write_timeout = 3
+        ser.exclusive = True
+        ser.open()
+
+        self._ser = ser
+
+        # create zigee api object
+        self._zb = ZigBee(ser, escaped=True, callback=self.Recv_handler)
+
+        # load/create db file
+        # check if need to create new db file
+        if not (os.path.isfile(DEVICE_DB_FILENAME)):
+            self.Log(DEVICE_DB_FILENAME + " file doesn't exist, creating a new one")
+            self._device_db = dict()
+        # if db file alreadt exists
+        else:
+            with open(DEVICE_DB_FILENAME) as f:
+                self._device_db = json.load(f)
+            self.Log("opened existing db " + DEVICE_DB_FILENAME)
+
+    def _Setup_therm(self):
+
+        # configure output pins
+        gpio.setup(THERM_HEAT_CTRL, gpio.OUT, initial=gpio.LOW)
+        gpio.setup(THERM_AC_CTRL, gpio.OUT, initial=gpio.LOW)
+        gpio.setup(THERM_FAN_CTRL, gpio.OUT, initial=gpio.LOW)
+
+        # configure temperature sensor
+        
+        
+        # create lock for thermostat io and settings access
+        self._therm_lock = RLock()
+
+        # initialize current thermostat modes
+        self._curr_temp_mode = "unk"
+        self._curr_fan_mode = "unk"
+        
+        # acquire thermostat lock
+        with self._therm_lock:
+
+            # if need to make new thermostat settings file
+            if not (os.path.isfile(THERM_SETTINGS_FILENAME)):
+                self.Log(THERM_SETTINGS_FILENAME + " file doesn't exist, creating a new one")
+                self._therm_settings = dict()
+                # initialize settings to defaults
+                self._Initialize_therm_settings()
+            # if file already exists
+            else:
+                with open(THERM_SETTINGS_FILENAME) as f:
+                    self._device_db = json.load(f)
+                self.Log("opened existing thermostat settings file " + THERM_SETTINGS_FILENAME)
+
+    def _Initialize_therm_settings(self):
 
         with self._therm_lock:
 
             # temp mode
-            self._therm_settings["temp_mode"] = INIT_TEMP_MODE
-            
+            self.Set_temp_mode(INIT_TEMP_MODE)
             # fan mode
-            self._therm_settings["fan_mode"] = INIT_FAN_MODE
-
+            self.Set_fan_mode(INIT_FAN_MODE)
             # set temp
-            self._therm_settings["set_temp"] = INIT_SET_TEMP
-
+            self.Set_temp(INIT_SET_TEMP)
             # temp diffs
-            self._therm_settings["lower_diff"] = INIT_LOWER_DIFF
-            self._therm_settings["upper_diff"] = INIT_UPPER_DIFF
-        
+            self.Set_temp_lower_diff(INIT_LOWER_DIFF)
+            self.Set_temp_upper_diff(INIT_UPPER_DIFF)
+
     def Get_curr_temp(self, units=DEFAULT_TEMP_UNITS):
 
         # acquire i2c lock
@@ -177,7 +210,7 @@ class Home():
             # get set temperature from settings
             set_temp_f = self._therm_settings["set_temp"]
 
-        return self.Convert_temp("F", units)
+        return self.Convert_temp(set_temp_f, "F", units)
 
     def Set_temp(self, temp, units=DEFAULT_TEMP_UNITS):
 
@@ -201,7 +234,7 @@ class Home():
         elif(from_units == "K"):
             temp_f = (9.0/5.0)*(temp - 273) + 32
         else:
-            raise Exception("invalid from units specified")
+            raise Exception("invalid \"from\" units specified")
 
         if(to_units == "F"):
             return temp_f
@@ -210,7 +243,7 @@ class Home():
         elif(to_units == "K"):
             return (5.0/9.0)*(temp_f-32) + 273
         else:
-            raise Exception("invalid to units specified")
+            raise Exception("invalid \"to\" units specified")
 
     def Set_temp_lower_diff(self, lower_diff, units=DEFAULT_TEMP_UNITS):
 
@@ -235,7 +268,7 @@ class Home():
         if(temp_mode not in ["heat", "cool", "off"]):
             self.Log("invalid temp_mode: " + str(temp_mode))
             return False
-        
+
         with self._therm_lock:
             self._therm_settings["temp_mode"] = temp_mode
 
@@ -262,12 +295,15 @@ class Home():
         with self._therm_lock:
             return self._therm_settings["fan_mode"]
 
-    def Log_temperatures(self, units=DEFAULT_TEMP_UNITS):
+    def Get_curr_modes(self):
+        return {"temp_mode":self._curr_temp_mode, "fan_mode":self._curr_fan_mode}
 
+    def Log_temp(self):
+        
         # if file is not already created
         if(not os.path.isfile(TEMP_LOG_FILENAME)):
             with open(TEMP_LOG_FILENAME, 'a+') as f:
-                f.write("time, temperature, units\n")
+                f.write("time,temperature,units,temp_mode,fan_mode\n")
 
         # open power log file
         with open(TEMP_LOG_FILENAME, 'a+') as f:
@@ -276,18 +312,149 @@ class Home():
             for device_name in self._device_db:
                 
                 # get current power usage
-                curr_temp = self.Get_curr_temp(units)
+                curr_temp = self.Get_curr_temp(TEMP_LOG_UNITS)
                 
                 # add line to csv
-                f.write(time.strftime(TEMP_TIMESTAMP) + "," + curr_temp + "," + units + "\n")
+                f.write(time.strftime(TEMP_TIMESTAMP) + "," + curr_temp + "," + TEMP_LOG_UNITS + "," +
+                        self.Get_temp_mode() + "," + self.Get_fan_mode() + "\n")
 
-    def Thermostat_handler(self):
+    def _Set_curr_therm_mode(self, temp_mode=None, fan_mode=None):
+        
+        # if changing temp mode
+        if(temp_mode):
 
+            # check if no change is needed
+            if(temp_mode == self._curr_temp_mode):
+                pass
+
+            # change to cool
+            elif(temp_mode == "cool"):
+                self.Log("turning AC on")
+                # turn heat off
+                gpio.output(THERM_HEAT_CTRL, gpio.low)
+                # turn ac on
+                gpio.output(THERM_AC_CTRL, gpio.high)
+                # update current mode
+                self._curr_temp_mode = temp_mode
+
+            # change to heat
+            elif(temp_mode == "heat"):
+                self.Log("turning heat on")
+                # turn cool off
+                gpio.output(THERM_AC_CTRL, gpio.low)
+                # turn heat on
+                gpio.output(THERM_HEAT_CTRL, gpio.high)
+                # update current mode
+                self._curr_temp_mode = temp_mode
+
+            # change to off
+            elif(temp_mode == "off"):
+                self.Log("turning heat/AC off")
+                # turn cool off
+                gpio.output(THERM_AC_CTRL, gpio.low)
+                # turn heat off
+                gpio.output(THERM_HEAT_CTRL, gpio.high)
+                # update current mode
+                self._curr_temp_mode = temp_mode
+            # invalid mode
+            else:
+                self.Log("invalid temp_mode: " + str(temp_mode))
+
+        # if changing fan mode
+        if(fan_mode):
+
+            # check if no change is needed
+            if(fan_mode == self._curr_fan_mode):
+                pass
+
+            # change to on
+            elif(fan_mode == "on"):
+                self.Log("turning fan on")
+                # turn fan on
+                gpio.output(THERM_FAN_CTRL, gpio.high)
+                # update current mode
+                self._curr_fan_mode = fan_mode
+
+            # change to off
+            elif(fan_mode == "off"):
+                self.Log("turning fan off")
+                # turn ac off
+                gpio.output(THERM_AC_CTRL, gpio.low)
+                # turn heat off
+                gpio.output(THERM_HEAT_CTRL, gpio.low)
+                # turn fan off
+                gpio.output(THERM_FAN_CTRL, gpio.low)
+                # update current mode
+                self._curr_fan_mode = fan_mode
+            else:
+                self.Log("invalid fan_mode: " + str(fan_mode))
+
+    def Thermostat_update(self):
+        # acquire thermostat lock
         with self._therm_lock:
-
-            # get current temperature
-            curr_temp_f = self.Get_curr_temp(units="F")
             
+            # get current settings
+            set_temp = self._therm_settings["set_temp"]
+            upper_diff = self._therm_settings["upper_diff"]
+            lower_diff = self._therm_settings["lower_diff"]
+            temp_mode = self._therm_settings["temp_mode"]
+            fan_mode = self._therm_settings["fan_mode"]
+            
+            curr_fan_mode = self._curr_fan_mode
+            curr_temp_mode = self._curr_temp_mode
+            
+            # get current temperature
+            curr_temp = self.Get_curr_temp(units="F")
+
+            # get difference from set temperature
+            temp_diff = curr_temp - set_temp
+
+            # if temperature is too high
+            if(temp_diff > upper_diff):
+                # check if should change current fan mode
+                if(curr_fan_mode != "on"):
+                    # check if can change current fan mode
+                    if(fan_mode in ["on", "auto"]):
+                        # turn fan on
+                        self._Set_curr_therm_mode(fan_mode="on")
+
+                    # check if should change current temp mode
+                    if(curr_temp_mode != "cool"):
+                        # check if can change current temp mode
+                        if(temp_mode in ["cool", "auto"]):
+                            # turn on ac
+                            self._Set_curr_therm_mode(temp_mode="cool")
+            # if temperature is too low
+            elif(-1*temp_diff > lower_diff):
+                # check if should change current fan mode
+                if(curr_fan_mode != "on"):
+                    # check if can change current fan mode
+                    if(fan_mode in ["on", "auto"]):
+                        # turn fan on
+                        self._Set_curr_therm_mode(fan_mode="on")
+                    
+                    # check if should change current temp mode
+                    if(curr_temp_mode in ["heat", "auto"]):
+                        # check if can change current temp mode
+                        if(temp_mode in ["heat", "auto"]):
+                            # turn on heat
+                            self._Set_curr_therm_mode(temp_mode="heat")
+            # if temperature is within bounds
+            else:
+                # check if should change current fan mode
+                if(curr_fan_mode != "off"):
+                    # check if can change current fan mode
+                    if(fan_mode in ["off", "auto"]):
+                        # turn fan off
+                        self._Set_curr_therm_mode(fan_mode="off")
+                    
+                    # check if should change current temp mode
+                    if(curr_temp_mode != "cool"):
+                        # check if can change current temp mode
+                        if(temp_mode in ["cool", "auto"]):
+                            # turn on ac
+                            self._Set_curr_therm_mode(temp_mode="cool")
+
     def Get_power_usage(self, device_name):
 
         # sample device's current sense pin
@@ -340,7 +507,7 @@ class Home():
                     # add line to csv
                     f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + power_usage + "\n")
 
-        """
+    """
     Function: Mac2bytes
     receives a string of 16 hex characters (mac address)
     returns a bytearray usable by ZigBee API
@@ -350,7 +517,7 @@ class Home():
 
     def Bytes2mac(self, mac):
         return mac.hex()
-                    
+
     def Sample_device(self, device_name, get_current=False, timeout=DEFAULT_TIMEOUT):
 
         # get db lock
@@ -996,7 +1163,88 @@ class Home():
         if (command == "test"):
             self.Log("receieved test command")
             return("ok")
-        
+
+        # get current temp
+        elif(command == "get_curr_temp"):
+
+            # check if units are specified
+            if("units" in params):
+                units = params["units"][0].upper()
+                return str(self.Get_curr_temp(units=units))
+            else:
+                return str(self.Get_curr_temp())
+
+        # get set temp
+        elif(command == "get_set_temp"):
+
+            # check if units are specified
+            if("units" in params):
+                units = params["units"][0].upper()
+                return str(self.Get_set_temp(units=units))
+            else:
+                return str(self.Get_set_temp())
+
+        # set temperature
+        elif(command == "set_temp"):
+            # check if temp is given
+            if("temp" not in params):
+                self.Log("set_temp failed, must specify \"temp\"")
+                return "failed"
+
+            temp = int(params["temp"])
+            
+            # check if units are specified
+            if("units" in params):
+                units = params["units"][0].upper()
+                success = self.Set_temp(temp, units=units)
+            else:
+                success = Set_temp(temp)
+
+            if(success):
+                return ("ok")
+            else:
+                return ("failed")
+
+        # set temperature mode
+        elif(command = "set_temp_mode"):
+            # check if temp_mode is given
+            if("temp_mode" not in params):
+                self.Log("set_temp_mode failed, must specify \"temp_mode\"")
+                return "failed"
+
+            temp_mode = params["temp_mode"]
+            
+            success = self.Set_temp_mode(temp_mode)
+
+            if(success):
+                return ("ok")
+            else:
+                return ("failed")
+
+        # set fan mode
+        elif(command == "set_fan_mode"):
+            # check if temp_mode is given
+            if("fan_mode" not in params):
+                self.Log("set_fan_mode failed, must specify \"fan_mode\"")
+                return "failed"
+
+            fan_mode = params["fan_mode"]
+
+            success = self.Set_fan_mode(fan_mode)
+
+            if(success):
+                return ("ok")
+            else:
+                return ("failed")
+
+        # get temp mode
+        elif(command == "get_temp_mode"):
+            return self.Get_temp_mode()
+
+        # get fan mode
+        elif(command == "get_fan_mode"):
+            return self.Get_fan_mode()
+
         # set level
         elif (command == "set_device_level"):
 
@@ -1124,6 +1372,17 @@ class Home():
 
             return (device_list)
 
+        elif(command == "list_devices_with_types"):
+            device_list = ""
+
+            if(len(self._device_db) == 0):
+                return ("none")
+            
+            for k in self._device_db:
+                device_list = device_list + "," + k
+
+            return (device_list)
+
         # add a task
         elif(command == "add_task"):
             success = self.Add_task(params)
@@ -1145,6 +1404,10 @@ class Home():
         self._log.info(logstr)
         #print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
 
+def Update_thermostat():
+    global myhome
+    myhome.Thermostat_update()
+        
 def Run_task(task):
     global myhome
     myhome.Run_command(task)
@@ -1153,8 +1416,8 @@ def Log_power_usages():
     global myhome
     myhome.Log_power_usages()
 
-myhome = Home(task_function=Run_task, power_usage_function=Log_power_usages)
-
 if(__name__ == "__main__"):
     print("this is a library. import it to use it")
     exit(0)
+
+myhome = Home(thermostat_function=Update_thermostat, task_function=Run_task, power_usage_function=Log_power_usages)

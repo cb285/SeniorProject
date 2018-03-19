@@ -9,3 +9,5 @@ POWER_LOG_INTERVAL = 10 # interval in minutes
 
 TEMP_LOG_FILENAME = "temp_log.csv"
 TEMP_LOG_INTERVAL = 10 # interval in minutes
+TEMP_LOG_UNITS = "F" # possible values: "F", "C", "K"
+
