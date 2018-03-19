@@ -21,7 +21,7 @@ from kivy.properties import *
 from kivy.uix.dropdown import DropDown
 
 SERVER_URL = "https://clayton:clayton@192.195.228.50:58000"
-TIME_FORMAT = "%A %m-%d %I:%M %p"
+TIME_FORMAT = "%A %m-%d %I:%M %p" # clock time/date format
 
 REQUEST_TIMEOUT = 1 # seconds to wait for server response
 
@@ -32,6 +32,8 @@ LARGE_FONT_SIZE = 48
 MEDIUM_FONT_SIZE = LARGE_FONT_SIZE - 10
 SMALL_FONT_SIZE = MEDIUM_FONT_SIZE - 10
 
+RESPONSE_OK = "ok"
+RESPONSE_FAILED = "failed"
 LEVEL_UNK = -1
 
 def Server_request(payload):
@@ -42,19 +44,22 @@ def Server_request(payload):
 
     resp = r.text
     
-    if(resp == "failed"):
+    if(resp == RESPONSE_FAILED):
         return False
+
+    if(resp == RESPONSE_OK):
+        return True
 
     if(resp == "invalid"):
         raise Exception("invalid command sent to server: " + payload["cmd"])
-    
+
     return r.text
 
 def Get_devices():
     resp = Server_request({'cmd':'list_devices_with_types'})
 
     if(not resp):
-        return {'no devices found':''}
+        return [['none', 'none']]
     
     device_list = resp.split(",")
 
@@ -63,23 +68,23 @@ def Get_devices():
     for device in device_list:
         name_type = device.split(":")
         devices[name_type[0]] = name_type[1]
-    
-    return devices
+
+    # sort alphabetically by device name
+    for key in sorted(devices.iterkeys()):
+        sorted_devices.append([key, mydict[key]])
+
+    return sorted_devices
 
 def Discover_devices():
     resp = Server_request({'cmd':'discover_devices'})
 
-    if(not resp):
-        return False
-    return True
+    return resp
 
 def Set_device_level(device_name, level):
 
     resp = Server_request({'cmd':'set_device_level', 'name':device_name, 'level':level})
 
-    if(not resp):
-        return False
-    return True
+    return resp
 
 def Get_device_level(device_name):
 
@@ -95,7 +100,7 @@ def Get_device_type(device_name):
     resp = Server_request({'cmd':'get_device_type', 'name':device_name})
 
     if(not resp):
-        return "unknown"
+        return "?"
 
     return resp
 
@@ -114,40 +119,24 @@ def Get_set_temp():
 
     if(not resp):
         return LEVEL_UNK
-    return (int(resp))
+
+    return int(resp)
 
 def Set_temp(temp):
 
-    resp = Server_request({'cmd':'set_temperature', 'temperature':temp})
-
-    if(not resp):
-        return False
-    else:
-        return True
+    return Server_request({'cmd':'set_temperature', 'temperature':temp})
 
 def Set_temp_mode(mode):
 
-    resp = Server_request({'cmd':'set_temp_mode', 'mode':mode})
-
-    if(not resp):
-        return False
-    return True
+    return Server_request({'cmd':'set_temp_mode', 'mode':mode})
 
 def Set_fan_mode(mode):
 
-    resp = Server_request({'cmd':'set_fan_mode', 'mode':mode})
-
-    if(not resp):
-        return False
-    return True
+    return Server_request({'cmd':'set_fan_mode', 'mode':mode})
 
 def Get_temp_mode():
 
-    resp = Server_request({'cmd':'get_temp_mode'})
-
-    if(not resp):
-        return "?"
-    return resp
+    return Server_request({'cmd':'get_temp_mode'})
 
 def Get_fan_mode():
 
@@ -354,7 +343,7 @@ class ThermTab(TabbedPanelItem):
                 self.fan_mode_label.text = "Fan: Auto"
             else:
                 self.fan_mode_label.text = "Fan: ?"
-        
+
 class DeviceTab(TabbedPanelItem):
     def __init__(self,**kwargs):
         super(DeviceTab,self).__init__(**kwargs)
@@ -367,10 +356,8 @@ class DeviceTab(TabbedPanelItem):
         self.content.add_widget(self.add_button)
         
     def add_device(self, event):
-        #self.content.remove_widget(self.add_button)
         self.gridlayout.add_widget(DeviceTile())
-        #self.content.add_widget(self.add_button)
-        
+
 class DeviceTile(FloatLayout):
     def __init__(self,**kwargs):
         super(DeviceTile,self).__init__(**kwargs)
@@ -378,7 +365,6 @@ class DeviceTile(FloatLayout):
         self.setup_window = DeviceSetupWindow(self, size_hint=(0.5 , 0.5), pos_hit={'x_center': 0.5, 'y_center': 0.5}, on_dismiss=self.setup_tile, title="Device Setup", auto_dismiss=False)
         self.is_setup = BooleanProperty(False)
         self.device_name = StringProperty("null")
-        self.device_id = StringProperty("null")
         self.device_type = StringProperty("null")
         
         self.setup_window.open()
@@ -390,9 +376,13 @@ class DeviceTile(FloatLayout):
         
         self.label = Label(text=self.device_name, font_size=36, size_hint=(0.5, 0.5), pos_hint={'center_x': 0.5, 'center_y': 0.65})
         self.add_widget(self.label)
-        
-        self.switch = Switch(on_press=self.toggle, active=False, size_hint=(0.5, 0.5), pos_hint={'center_x': 0.5, 'center_y': 0.5})
-        self.add_widget(self.switch)
+
+        if(self.device_type = "outlet"):
+            self.switch = Switch(on_press=self.toggle, active=False, size_hint=(0.5, 0.5), pos_hint={'center_x': 0.5, 'center_y': 0.5})
+            self.add_widget(self.switch)
+        elif(self.device_type = "light"):
+            self.switch = Switch(on_press=self.toggle, active=False, size_hint=(0.5, 0.5), pos_hint={'center_x': 0.5, 'center_y': 0.5})
+            self.add_widget(self.switch)
         
         self.close_button = Button(background_normal = '', background_color=(1,0,0,1), text="x", font_size=26, pos_hint={'x': 0.9, 'y': 0.9}, size_hint=(.1, .1), on_press=self.close_tile)
         self.add_widget(self.close_button)
@@ -448,22 +438,33 @@ class DeviceSetupWindow(Popup):
         
         # add close button
         self.close_button = Button(text="x", background_normal = '', background_color=(1,0,0,1), pos_hint={'x': 0.9, 'y': 0.9}, size_hint=(0.1, 0.1), on_press=self.close_setupwindow)
-        
         self.content.add_widget(self.close_button)
 
-        payload = {'cmd':'list_devices'}
-        resp = server_request(payload)
+        # add drop down list
+        self.device_dropdown = DropDown()
+        self.content.add_widget(self.device_dropdown)
 
-        # add entry boxes for device ID and Name
-        self.id_entry = TextInput(hint_text="Device ID", pos_hint={'x': 0, 'y': .5}, size_hint=(.6, .15), )
-        self.content.add_widget(self.id_entry)
-        self.name_entry = TextInput(hint_text="Name", pos_hint={'x': 0, 'y': .3}, size_hint=(.6, .15))
-        self.content.add_widget(self.name_entry)
-        
+        # add devices to drop down list
+        self.refresh_device_list()
+
         # add save button
         self.save_button = Button(text="Save", background_normal="", background_color=(0,0,.7,1), on_press=self.save_setup, pos_hint={'x': 0, 'y': 0}, size_hint=(.4, .2))
         self.content.add_widget(self.save_button)
+
+    def refresh_device_list(self, event=0):
+
+        # clear list
+        self.device_dropdown.clearwidgets()
         
+        # get list of devices in database
+        devices = Get_devices()
+        
+        # add each device in db to drop down list
+        for device in devices:
+            btn = Button(text=device[0] + " : " + device[1], size_hint=(None, .05))
+            btn.bind(on_release=lambda btn: self.device_dropdown.select(btn.text))
+            self.device_dropdown.add_widget(widget=btn, index=len(self.device_dropdown.children))
+
     def close_setupwindow(self, event):
         self.caller.is_setup = False
         self.dismiss()
@@ -475,12 +476,9 @@ class DeviceSetupWindow(Popup):
         self.lightswitch_active = not self.lightswitch_active
         
     def save_setup(self, event):
-        if(self.outlet_active):
-            self.caller.device_type = "outlet"
-        elif(self.lightswitch_active):
-            self.caller.device_type = "lightswitch"
-        else:
-            return
+
+        
+        
         
         self.caller.device_id = self.id_entry.text
         self.caller.device_name = self.name_entry.text
