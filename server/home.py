@@ -13,7 +13,7 @@ from threading import *
 from apscheduler.schedulers.background import BackgroundScheduler
 from queue import *
 import RPi.GPIO as gpio
-gpio.setmode(GPIO.BCM) # set gpio numbering mode to BCM
+gpio.setmode(gpio.BCM) # set gpio numbering mode to BCM
 
 from thermostat_constants import *
 from logging_constants import *
@@ -23,7 +23,7 @@ DEVICE_DB_FILENAME = ".devices.json"               # path to device db file
 TASKS_DB_FILENAME = "sqlite:///.tasks.db"          # path to task db file
 THERM_SETTINGS_FILENAME = ".thermostat.json"       # path to thermostat settings file
 SETUP_WAIT = 5                                     # time in seconds to wait for samples to be received on server startup
-DISCOVERY_TASKID = "__discovery_task_"               # task id to use for network discovery task
+DISCOVERY_TASKID = "__discovery_task__"               # task id to use for network discovery task
 LEVEL_UNK = -1                                     # special device level used to mean level is unknown
 
 OUTLET_TYPE = "outlet"
@@ -53,6 +53,9 @@ class Home():
         # set up thermostat relay GPIO
         self._Setup_therm()
 
+        # set up zigbee connection
+        self._Setup_zigbee()
+        
         # send discovery packet
         self.Send_discovery_packet()
         
@@ -63,10 +66,10 @@ class Home():
         #self._sched.add_job(power_log_function, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
 
         # start temperature logger task
-        self._sched.add_job(temp_log_function, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
+        #self._sched.add_job(temp_log_function, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
 
         # start thermostat updater task
-        self._sched.add_job(thermostat_update_function, trigger='interval', minutes=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
+        self._sched.add_job(thermostat_function, trigger='interval', minutes=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
 
         # store task_function for adding tasks
         self._task_function = task_function
@@ -136,7 +139,7 @@ class Home():
 
         # load/create db file
         # check if need to create new db file
-        if not (os.path.isfile(DEVICE_DB_FILENAME)):
+        if (not os.path.isfile(DEVICE_DB_FILENAME)):
             self.Log(DEVICE_DB_FILENAME + " file doesn't exist, creating a new one")
             self._device_db = dict()
         # if db file alreadt exists
@@ -166,7 +169,7 @@ class Home():
         with self._therm_lock:
 
             # if need to make new thermostat settings file
-            if not (os.path.isfile(THERM_SETTINGS_FILENAME)):
+            if (not os.path.isfile(THERM_SETTINGS_FILENAME)):
                 self.Log(THERM_SETTINGS_FILENAME + " file doesn't exist, creating a new one")
                 self._therm_settings = dict()
                 # initialize settings to defaults
@@ -174,7 +177,7 @@ class Home():
             # if file already exists
             else:
                 with open(THERM_SETTINGS_FILENAME) as f:
-                    self._device_db = json.load(f)
+                    self._therm_settings = json.load(f)
                 self.Log("opened existing thermostat settings file " + THERM_SETTINGS_FILENAME)
 
     def _Initialize_therm_settings(self):
@@ -217,7 +220,7 @@ class Home():
         temp_f = self.Convert_temp(temp, units, "F")
 
         with self._therm_lock:
-            self._them_settings["set_temp"] = temp_f
+            self._therm_settings["set_temp"] = temp_f
 
         return True
 
@@ -277,11 +280,11 @@ class Home():
     def Set_fan_mode(self, fan_mode):
 
         if(fan_mode not in ["off", "on", "auto"]):
-            self.Log("invalid temp_mode: " + str(temp_mode))
+            self.Log("invalid fan_mode: " + str(fan_mode))
             return False
         
         with self._therm_lock:
-            self._therm_settings["temp_mode"] = temp_mode
+            self._therm_settings["fan_mode"] = fan_mode
 
         return True
     
@@ -1206,7 +1209,7 @@ class Home():
                 return ("failed")
 
         # set temperature mode
-        elif(command = "set_temp_mode"):
+        elif(command == "set_temp_mode"):
             # check if temp_mode is given
             if("temp_mode" not in params):
                 self.Log("set_temp_mode failed, must specify \"temp_mode\"")
@@ -1402,7 +1405,7 @@ class Home():
     """
     def Log(self, logstr):
         self._log.info(logstr)
-        #print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
+        print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
 
 def Update_thermostat():
     global myhome

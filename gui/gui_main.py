@@ -128,11 +128,11 @@ def Set_temp(temp):
 
 def Set_temp_mode(mode):
 
-    return Server_request({'cmd':'set_temp_mode', 'mode':mode})
+    return Server_request({'cmd':'set_temp_mode', 'temp_mode':mode})
 
 def Set_fan_mode(mode):
 
-    return Server_request({'cmd':'set_fan_mode', 'mode':mode})
+    return Server_request({'cmd':'set_fan_mode', 'fan_mode':mode})
 
 def Get_temp_mode():
 
@@ -377,10 +377,10 @@ class DeviceTile(FloatLayout):
         self.label = Label(text=self.device_name, font_size=36, size_hint=(0.5, 0.5), pos_hint={'center_x': 0.5, 'center_y': 0.65})
         self.add_widget(self.label)
 
-        if(self.device_type = "outlet"):
+        if(self.device_type == "outlet"):
             self.switch = Switch(on_press=self.toggle, active=False, size_hint=(0.5, 0.5), pos_hint={'center_x': 0.5, 'center_y': 0.5})
             self.add_widget(self.switch)
-        elif(self.device_type = "light"):
+        elif(self.device_type == "light"):
             self.switch = Switch(on_press=self.toggle, active=False, size_hint=(0.5, 0.5), pos_hint={'center_x': 0.5, 'center_y': 0.5})
             self.add_widget(self.switch)
         
