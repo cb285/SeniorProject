@@ -47,21 +47,18 @@ class Home():
         self._sched = BackgroundScheduler()
         self._sched.add_jobstore('sqlalchemy', url=TASKS_DB_FILENAME)
 
-        # create lock for i2c access
-        self._i2c_lock = RLock()
-
         # set up thermostat relay GPIO
         self._Setup_therm()
 
         # set up zigbee connection
         self._Setup_zigbee()
-        
+
         # send discovery packet
         self.Send_discovery_packet()
-        
+
         # start scheduler
         self._sched.start()
-        
+
         # start power usage logger task
         #self._sched.add_job(power_log_function, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
 
@@ -69,7 +66,7 @@ class Home():
         #self._sched.add_job(temp_log_function, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
 
         # start thermostat updater task
-        self._sched.add_job(thermostat_function, trigger='interval', minutes=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
+        self._sched.add_job(thermostat_function, trigger='interval', seconds=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
 
         # store task_function for adding tasks
         self._task_function = task_function
@@ -83,7 +80,7 @@ class Home():
     def Exit(self):
 
         # log
-        self.Log("shutdown procedure started")
+        self.Log("shutdown procedure started...")
         
         # write device database to file
         # get db lock
@@ -105,7 +102,7 @@ class Home():
 
         # set gpio back to defaults
         gpio.cleanup()
-            
+
         # log
         self.Log("shutdown procedure complete")
 

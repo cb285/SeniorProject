@@ -12,6 +12,6 @@ DEFAULT_TEMP_UNITS = "F" # default units returned and used to set temp, possible
 THERM_INTERVAL = 60     # seconds in time between temperature checks and setting adjustments
 
 # control pins (BCM numbering)
-THERM_AC_CTRL = 17 
-THERM_HEAT_CTRL = 27
-THERM_FAN_CTRL = 22
+THERM_AC_CTRL = 13
+THERM_HEAT_CTRL = 19
+THERM_FAN_CTRL = 26
