@@ -15,3 +15,6 @@ THERM_INTERVAL = 60     # seconds in time between temperature checks and setting
 THERM_AC_CTRL = 13
 THERM_HEAT_CTRL = 19
 THERM_FAN_CTRL = 26
+
+TEMP_ADC = 'D0'
+TEMP_ADC_SAMPLE_IDENT = 'dio-0'
