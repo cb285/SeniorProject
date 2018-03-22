@@ -157,23 +157,6 @@ GenerateClassCluster=0
 DocumentUniqueId=SNYGQSAL
 
 [Document8]
-DocumentPath=LightSwitch.OutJob
-AnnotationEnabled=1
-AnnotateStartValue=1
-AnnotationIndexControlEnabled=0
-AnnotateSuffix=
-AnnotateScope=All
-AnnotateOrder=-1
-DoLibraryUpdate=1
-DoDatabaseUpdate=1
-ClassGenCCAutoEnabled=1
-ClassGenCCAutoRoomEnabled=1
-ClassGenNCAutoScope=None
-DItemRevisionGUID=
-GenerateClassCluster=0
-DocumentUniqueId=
-
-[Document9]
 DocumentPath=SeniorProject-Unused.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -190,7 +173,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=TIFXRLBY
 
-[Document10]
+[Document9]
 DocumentPath=SeniorProject-Unused.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -206,126 +189,6 @@ ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=JSBWBESD
-
-[GeneratedDocument1]
-DocumentPath=Project Outputs for Free Documents\BOM\Bill of Materials-SeniorProject.xls
-DItemRevisionGUID=
-
-[GeneratedDocument2]
-DocumentPath=Project Outputs for SeniorProject\BOM\Bill of Materials-SeniorProject.xls
-DItemRevisionGUID=
-
-[GeneratedDocument3]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.EXTREP
-DItemRevisionGUID=
-
-[GeneratedDocument4]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.EXTREP
-DItemRevisionGUID=
-
-[GeneratedDocument5]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GBL
-DItemRevisionGUID=
-
-[GeneratedDocument6]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GBL
-DItemRevisionGUID=
-
-[GeneratedDocument7]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GBO
-DItemRevisionGUID=
-
-[GeneratedDocument8]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GBO
-DItemRevisionGUID=
-
-[GeneratedDocument9]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GBP
-DItemRevisionGUID=
-
-[GeneratedDocument10]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GBP
-DItemRevisionGUID=
-
-[GeneratedDocument11]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GBS
-DItemRevisionGUID=
-
-[GeneratedDocument12]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GBS
-DItemRevisionGUID=
-
-[GeneratedDocument13]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GD1
-DItemRevisionGUID=
-
-[GeneratedDocument14]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GD1
-DItemRevisionGUID=
-
-[GeneratedDocument15]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GG1
-DItemRevisionGUID=
-
-[GeneratedDocument16]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GG1
-DItemRevisionGUID=
-
-[GeneratedDocument17]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GTL
-DItemRevisionGUID=
-
-[GeneratedDocument18]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GTL
-DItemRevisionGUID=
-
-[GeneratedDocument19]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GTO
-DItemRevisionGUID=
-
-[GeneratedDocument20]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GTO
-DItemRevisionGUID=
-
-[GeneratedDocument21]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GTP
-DItemRevisionGUID=
-
-[GeneratedDocument22]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GTP
-DItemRevisionGUID=
-
-[GeneratedDocument23]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.GTS
-DItemRevisionGUID=
-
-[GeneratedDocument24]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.GTS
-DItemRevisionGUID=
-
-[GeneratedDocument25]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.REP
-DItemRevisionGUID=
-
-[GeneratedDocument26]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.REP
-DItemRevisionGUID=
-
-[GeneratedDocument27]
-DocumentPath=Project Outputs for Free Documents\Gerber\LightSwitch.RUL
-DItemRevisionGUID=
-
-[GeneratedDocument28]
-DocumentPath=Project Outputs for SeniorProject\Gerber\LightSwitch.RUL
-DItemRevisionGUID=
-
-[GeneratedDocument29]
-DocumentPath=Project Outputs for Free Documents\ExportSTEP\LightSwitch.step
-DItemRevisionGUID=
-
-[GeneratedDocument30]
-DocumentPath=Project Outputs for SeniorProject\ExportSTEP\LightSwitch.step
-DItemRevisionGUID=
 
 [Configuration1]
 Name=Sources
