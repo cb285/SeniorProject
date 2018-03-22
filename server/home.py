@@ -13,7 +13,7 @@ from threading import *
 from apscheduler.schedulers.background import BackgroundScheduler
 from queue import *
 import RPi.GPIO as gpio
-gpio.setmode(GPIO.BCM) # set gpio numbering mode to BCM
+gpio.setmode(gpio.BCM) # set gpio numbering mode to BCM
 
 from thermostat_constants import *
 from logging_constants import *
@@ -23,12 +23,17 @@ DEVICE_DB_FILENAME = ".devices.json"               # path to device db file
 TASKS_DB_FILENAME = "sqlite:///.tasks.db"          # path to task db file
 THERM_SETTINGS_FILENAME = ".thermostat.json"       # path to thermostat settings file
 SETUP_WAIT = 5                                     # time in seconds to wait for samples to be received on server startup
-DISCOVERY_TASKID = "__discovery_task_"               # task id to use for network discovery task
+DISCOVERY_TASKID = "__discovery_task__"               # task id to use for network discovery task
 LEVEL_UNK = -1                                     # special device level used to mean level is unknown
 
-OUTLET_TYPE = "outlet"
-LIGHT_TYPE = "light"
-DEVICE_TYPES = [OUTLET_TYPE, LIGHT_TYPE]   # valid device types
+COORDINATOR_MAC = "0013a20041553733"
+MAX_RX_TRIES = 3
+
+SWITCH_TYPE = "switch"
+DIMMER_TYPE = "dimmer"
+DEVICE_TYPES = [SWITCH_TYPE, DIMMER_TYPE]   # valid device types
+
+UNK = "unknown"
 
 POWER_LOG_TASKID = "__power_logger_task__"
 TEMP_LOG_TASKID = "__temp_logger_task__"
@@ -47,26 +52,26 @@ class Home():
         self._sched = BackgroundScheduler()
         self._sched.add_jobstore('sqlalchemy', url=TASKS_DB_FILENAME)
 
-        # create lock for i2c access
-        self._i2c_lock = RLock()
+        # set up zigbee
+        self._Setup_zigbee()
 
-        # set up thermostat relay GPIO
+        # set up thermostat
         self._Setup_therm()
 
         # send discovery packet
         self.Send_discovery_packet()
-        
+
         # start scheduler
         self._sched.start()
-        
+
         # start power usage logger task
         #self._sched.add_job(power_log_function, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
 
         # start temperature logger task
-        self._sched.add_job(temp_log_function, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
+        #self._sched.add_job(temp_log_function, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
 
         # start thermostat updater task
-        self._sched.add_job(thermostat_update_function, trigger='interval', minutes=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
+        self._sched.add_job(thermostat_function, trigger='interval', seconds=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
 
         # store task_function for adding tasks
         self._task_function = task_function
@@ -80,7 +85,7 @@ class Home():
     def Exit(self):
 
         # log
-        self.Log("shutdown procedure started")
+        self.Log("shutdown procedure started...")
         
         # write device database to file
         # get db lock
@@ -88,22 +93,20 @@ class Home():
             # dump db to file
             with open(DEVICE_DB_FILENAME, 'w') as f:
                 json.dump(self._device_db, f)
-
-        # write thermostat settings to file
+        
         # get thermostat lock
         with self._therm_lock:
-            # dump db to file
+            # dump thermostat settings to file
             with open(THERM_SETTINGS_FILENAME, 'w') as f:
                 json.dump(self._therm_settings, f)
+
+            # set gpio back to defaults
+            gpio.cleanup()
 
         # close serial connection
         with self._zb_lock:
             self._ser.close()
 
-        # set gpio back to defaults
-        gpio.cleanup()
-            
-        # log
         self.Log("shutdown procedure complete")
 
     def _Setup_zigbee(self):
@@ -131,15 +134,15 @@ class Home():
 
         self._ser = ser
 
-        # create zigee api object
+        # create zigbee api object
         self._zb = ZigBee(ser, escaped=True, callback=self.Recv_handler)
 
         # load/create db file
         # check if need to create new db file
-        if not (os.path.isfile(DEVICE_DB_FILENAME)):
+        if (not os.path.isfile(DEVICE_DB_FILENAME)):
             self.Log(DEVICE_DB_FILENAME + " file doesn't exist, creating a new one")
             self._device_db = dict()
-        # if db file alreadt exists
+        # if db file already exists
         else:
             with open(DEVICE_DB_FILENAME) as f:
                 self._device_db = json.load(f)
@@ -152,8 +155,9 @@ class Home():
         gpio.setup(THERM_AC_CTRL, gpio.OUT, initial=gpio.LOW)
         gpio.setup(THERM_FAN_CTRL, gpio.OUT, initial=gpio.LOW)
 
-        # configure temperature sensor
-        
+        # configure temperature sensor adc on local xbee
+        with self._zb_lock:
+            self._zb.at(command=TEMP_ADC, parameter=XB_CONF_ADC)
         
         # create lock for thermostat io and settings access
         self._therm_lock = RLock()
@@ -166,7 +170,7 @@ class Home():
         with self._therm_lock:
 
             # if need to make new thermostat settings file
-            if not (os.path.isfile(THERM_SETTINGS_FILENAME)):
+            if (not os.path.isfile(THERM_SETTINGS_FILENAME)):
                 self.Log(THERM_SETTINGS_FILENAME + " file doesn't exist, creating a new one")
                 self._therm_settings = dict()
                 # initialize settings to defaults
@@ -174,7 +178,7 @@ class Home():
             # if file already exists
             else:
                 with open(THERM_SETTINGS_FILENAME) as f:
-                    self._device_db = json.load(f)
+                    self._therm_settings = json.load(f)
                 self.Log("opened existing thermostat settings file " + THERM_SETTINGS_FILENAME)
 
     def _Initialize_therm_settings(self):
@@ -217,7 +221,7 @@ class Home():
         temp_f = self.Convert_temp(temp, units, "F")
 
         with self._therm_lock:
-            self._them_settings["set_temp"] = temp_f
+            self._therm_settings["set_temp"] = temp_f
 
         return True
 
@@ -277,11 +281,11 @@ class Home():
     def Set_fan_mode(self, fan_mode):
 
         if(fan_mode not in ["off", "on", "auto"]):
-            self.Log("invalid temp_mode: " + str(temp_mode))
+            self.Log("invalid fan_mode: " + str(fan_mode))
             return False
         
         with self._therm_lock:
-            self._therm_settings["temp_mode"] = temp_mode
+            self._therm_settings["fan_mode"] = fan_mode
 
         return True
     
@@ -456,9 +460,9 @@ class Home():
                             self._Set_curr_therm_mode(temp_mode="cool")
 
     def Get_power_usage(self, device_name):
-
+        
         # sample device's current sense pin
-        sample_val = Sample_device(device_name, get_current=True)
+        sample_val = _Sample_xbee(device_name, pins=[CURRSENSE_SAMPLE_IDENT])
 
         # if could not get sample
         if(sample_val == LEVEL_UNK):
@@ -518,120 +522,164 @@ class Home():
     def Bytes2mac(self, mac):
         return mac.hex()
 
-    def Sample_device(self, device_name, get_current=False, timeout=DEFAULT_TIMEOUT):
+    def Get_device_type(self, device_name):
 
-        # get db lock
         with self._db_lock:
-        
             # check if device in db
             if(not self.Name_in_db(device_name)):
-                self.Log("cannot sample device \"" + device_name + "\", no device with that name in db")
                 # return unknown
+                return UNK
+
+            return self._device_db[device_name]["type"]
+
+    def Get_device_mac(self, device_name):
+
+        with self._db_lock:
+            # check if device in db
+            if(not self.Name_in_db(device_name)):
+                # return unknown
+                return UNK
+
+            return self._device_db[device_name]["mac"]
+    
+    def Get_device_level(self, device_name):
+
+        device_type = self.Get_device_type(device_name)
+
+        # check if device in db
+        if(device_type == UNK):
+            self.Log("cannot sample device \"" + device_name + "\", no device with that name in db")
+            # return unknown
+            return LEVEL_UNK
+
+        # switch device
+        if(device_type == SWITCH_TYPE):
+            # get relay status
+            samples = self._Sample_xbee(device_name=device_name, pins=[RELAY_STAT_SAMPLE_IDENT])
+
+            if(not samples):
                 return LEVEL_UNK
-
-            # get device type
-            device_type = self._device_db[device_name]['type']
-            # get device mac
-            bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
+            return samples[RELAY_STAT_SAMPLE_IDENT]
             
-            # get process packets lock
-            with self._process_packets_lock:
+        # dimmer device
+        elif(device_type == DIMMER_TYPE):
+            samples = self._Sample_xbee(device_name=device_name, pins=[RELAY_STAT_SAMPLE_IDENT, DPOT_OUT_SAMPLE_IDENT])
 
-                # clear the queue
-                while(not self._packet_queue.empty()):
-                    self._packet_queue.get(block=False)
+            if(not samples):
+                return LEVEL_UNK
+            
+            relay_level = samples[RELAY_STAT_SAMPLE_IDENT]
+            
+            # if relay is off
+            if(relay_level == 0):
+                # turn off sampling
+                return 0
+
+            # if relay is on
+            else:
+                # get level
+                dpot_level = int(round(100*((samples[DPOT_OUT_SAMPLE_IDENT] / 1023.0) * 1.2)))
+
+                # adjust the level
+                if(dpot_level >= 95):
+                    dpot_level = 100
+                elif(dpot_level <= 0):
+                    dpot_level = 1
+
+                # return level
+                return dpot_level
+
+    def _Sample_xbee(self, device_name=False, pins=False, timeout=DEFAULT_TIMEOUT):
+        
+        # if remote device
+        if(device_name):
+            # get db lock
+            with self._db_lock:
                 
-                # request sample (periodic sampling every 255 ms)
-                self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x0FF');
+                # get device mac
+                mac_addr = self.Get_device_mac(device_name)
 
-                for x in range(3):
+                if(mac_addr == UNK):
+                    self.Log("cannot sample device \"" + device_name + "\", no device with that name in db")
+                    # return unknown
+                    return LEVEL_UNK
 
-                    try:
-                        # wait for a packet
-                        packet = self._packet_queue.get(block=True, timeout=timeout)
+                bytes_mac = self.Mac2bytes(mac_addr)
 
-                    except Empty:
-                        packet = False
+        else:
+            bytes_mac = self.Mac2bytes(COORDINATOR_MAC)
+
+        # get process packets lock
+        with self._process_packets_lock:
+            
+            # clear the queue
+            while(not self._packet_queue.empty()):
+                self._packet_queue.get(block=False)
+                
+            with self._zb_lock:
+                try:
+                    # if remote device
+                    if(device_name):
+                        # request sample (periodic sampling every 255 ms)
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x0FF')
+                    else:
+                        # request sample
+                        self._zb.at(command='IS')
                         
-                    # check if didn't receive packet
-                    if(not packet):
-                        self.Log("could not get sample from device \"" + device_name + "\", check the device")
-                        # turn off sampling
-                        self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
-                        return LEVEL_UNK
-                    
-                    if("source_addr_long" not in packet):
-                        self.Log("does not contain source addr")
-                        continue
-                    
-                    # check if packet is from device of interest
-                    if((bytearray(packet['source_addr_long'])) != bytes_mac):
-                            self.Log("mac doesn't match device of interest")
+                    # for each try
+                    for x in range(MAX_RX_TRIES):
+                        try:
+                            # wait for a packet
+                            packet = self._packet_queue.get(block=True, timeout=timeout)
+                        except Empty:
+                            packet = False
+                            
+                        # if didn't receive packet
+                        if(not packet):
+                            if(device_name):
+                                self.Log("could not get sample from device \"" + device_name + "\", check the device")
+                                return False
+                            else:
+                                self.Log("could not get sample from local xbee, check the device")
+                                return False
+
+                        # check if packet is from desired device
+                        if("source_addr_long" not in packet):
+                            continue
+                        if((bytearray(packet['source_addr_long'])) != bytes_mac):
                             continue
 
-                    # check if sample packet
-                    if("samples" in packet):                        
-                        samples = packet["samples"][0]
-
-                        # if current sense value is desired
-                        if(get_current):
-                            if(CURR_SENSE_SAMPLE_IDENT in samples):
-
-                                # turn off sampling
-                                self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
-
-                                # return current level
-                                return samples[CURRSENSE_SAMPLE_IDENT]
+                        # check if sample packet
+                        if("samples" in packet):                        
+                            samples = packet["samples"][0]
+                            
+                            # if no specific pin given, return all
+                            if(not pins):
+                                return samples
+                            
+                            sample_dict = dict()
+                            
+                            for pin in pins:
+                                if(pin not in samples):
+                                    continue
                                 
-                        # if outlet device
-                        if(device_type == OUTLET_TYPE):
-                            # get relay status
-                            stat = samples[RELAY_STAT_SAMPLE_IDENT]
-                            if(stat):
-                                # turn off sampling
-                                self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
-                                return 100
-                            else:
-                                # turn off sampling
-                                self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
-                                return 0
-
-                        # if light device
-                        elif(device_type == LIGHT_TYPE):
-
-                            # if contains relay status
-                            if(RELAY_STAT_SAMPLE_IDENT in samples):
-                                # get relay status
-                                stat = samples[RELAY_STAT_SAMPLE_IDENT]
-                                
-                                # if relay is off
-                                if(not stat):
-                                    # turn off sampling
-                                    self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
-                                    return 0
-
-                                # if relay is on
+                                if(type(samples[pin]) is bool):
+                                    if(samples[pin]):
+                                        sample_dict[pin] = 100
+                                    else:
+                                        sample_dict[pin] = 0
                                 else:
-                                    # if contains dpot analog out status
-                                    if(DPOT_OUT_SAMPLE_IDENT in samples):
-                                        
-                                        # get level
-                                        dpot_level = int(round(100*((samples[DPOT_OUT_SAMPLE_IDENT] / 1023.0) * 1.2)))
-                                        
-                                        # adjust the level
-                                        if(dpot_level >= 95):
-                                            dpot_level = 100
-                                        elif(dpot_level <= 0):
-                                            dpot_level = 1
-
-                                        # return level
-                                        # turn off sampling
-                                        self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
-                                        return dpot_level
-
-                # turn off sampling
-                self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
-                return LEVEL_UNK
+                                    sample_dict[pin] = samples[pin]
+                                    
+                            return sample_dict
+                        
+                    # if couldn't get desired samples
+                    return False
+                    
+                    # turn off periodic sampling
+                finally:
+                    if(device_name):
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
 
     """
     Function: Set_device_level
@@ -652,7 +700,7 @@ class Home():
             return False
         
         # get current device level
-        curr_level = self.Sample_device(device_name)
+        curr_level = self.Get_device_level(device_name)
         
         # check if got a sample
         if(curr_level == LEVEL_UNK):
@@ -671,12 +719,12 @@ class Home():
             device_type = self._device_db[device_name]['type']
             
             # if outlet
-            if(device_type == OUTLET_TYPE):
+            if(device_type == SWITCH_TYPE):
                 # toggle relay
                 self._Toggle_relay(device_name)
                 return True
 
-            elif(device_type == LIGHT_TYPE):
+            elif(device_type == DIMMER_TYPE):
                 # set light level using a thread
                 Thread(target=lambda: self._Set_light(device_name, curr_level, level)).start()
                 return True
@@ -711,7 +759,7 @@ class Home():
                 # turn on the relay
                 self._Toggle_relay(device_name)
                 
-                curr_level = self.Sample_device(device_name)
+                curr_level = self.Get_device_level(device_name)
             try:
                 # set D flip flop CLR# to low (cleared)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
@@ -725,7 +773,7 @@ class Home():
                     num_tries = 0
                     
                     # while the light is too bright
-                    while(level < self.Sample_device(device_name)):
+                    while(level < self.Get_device_level(device_name)):
                         
                         # decrement the dpot
                         # set INC# high
@@ -747,7 +795,7 @@ class Home():
                     num_tries = 0
                     
                     # while the light is too dim
-                    while(self.Sample_device(device_name) < level):
+                    while(self.Get_device_level(device_name) < level):
                         
                         # increment the dpot
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
@@ -835,11 +883,6 @@ class Home():
     attempts to add a device to the db, returns True if successful, false otherwise
     """
     def Add_device(self, device_name, device_mac, device_type):        
-
-        # get db lock
-        with self._db_lock:
-
-            self.Log("add device got lock")
             
             # check if device with that name or mac is already in db
             if(self.Name_in_db(device_name)):
@@ -857,43 +900,46 @@ class Home():
             # get mac as bytes
             bytes_mac = self.Mac2bytes(device_mac)
 
-            # for outlets and lights, set up change detection for input button
-            if(device_type in [OUTLET_TYPE, LIGHT_TYPE]):
-                # set RELAY_STATUS (D1) to input
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_DINPUT)
+            # acquire zigbee lock
+            with self._zb_lock:
+                # for outlets and lights, set up change detection for input button
+                if(device_type in [SWITCH_TYPE, DIMMER_TYPE]):
+                    # set RELAY_STATUS (D1) to input
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_DINPUT)
 
-                # set CURRSENSE_OUT (D3) to analog input
-                #self._zb.remote_at(dest_addr_long=bytes_mac, command=CURRSENSE_OUT, parameter=XB_CONF_ADC)
+                    # set CURRSENSE_OUT (D3) to analog input
+                    #self._zb.remote_at(dest_addr_long=bytes_mac, command=CURRSENSE_OUT, parameter=XB_CONF_ADC)
+                    
+                    # set RELAY_TOGGLE (D0) to output low
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
 
-                # set RELAY_TOGGLE (D0) to output low
-            self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
-
-            if(device_type == LIGHT_TYPE):
-                # set DPOT_OUT (D2) to analog input
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
+                if(device_type == DIMMER_TYPE):
+                    # set DPOT_OUT (D2) to analog input
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
+                    
+                    # set D flip flop CLR# to high
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
+                    
+                    # DPOT INC# to low
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
                 
-                # set D flip flop CLR# to high
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
-                
-                # DPOT INC# to low
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
-                
-                # set U/D# to low
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
+                    # set U/D# to low
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
-            # create node identifier
-            node_identifier = device_type + "-" + device_mac[12:]
+                # create node identifier
+                node_identifier = device_type + "_" + device_mac[12:]
 
-            # write node identifier to device
-            self._zb.remote_at(dest_addr_long=bytes_mac, command='NI', parameter=node_identifier)
+                # write node identifier to device
+                self._zb.remote_at(dest_addr_long=bytes_mac, command='NI', parameter=node_identifier)
 
-            # apply changes
-            self._zb.remote_at(dest_addr_long=bytes_mac, command='AC')
-            # save configuration
-            self._zb.remote_at(dest_addr_long=bytes_mac, command='WR')
+                # apply changes
+                self._zb.remote_at(dest_addr_long=bytes_mac, command='AC')
+                # save configuration
+                self._zb.remote_at(dest_addr_long=bytes_mac, command='WR')
 
-            # add to db dict
-            self._device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type}
+            with self._db_lock:
+                # add to db dict
+                self._device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type}
 
             self.Log("added device \"" + device_name + "\" of type \"" + device_type + "\" to db")
             return True
@@ -955,7 +1001,7 @@ class Home():
     handles packets containing change detection samples
     """
     def Recv_handler(self, packet):
-
+        
         # acquire process packets lock
         acquired = self._process_packets_lock.acquire(blocking=False)
 
@@ -966,7 +1012,6 @@ class Home():
             return
 
         # if could get lock:
-        
         try:
             # if discovery packet response
             if("parameter" in packet):
@@ -989,7 +1034,7 @@ class Home():
                         
                         self.Log("NI = " + node_identifier)
                         
-                        split_ident = node_identifier.split("-")
+                        split_ident = node_identifier.split("_")
                         
                         if(len(split_ident) == 2):       
                             # get needed values
@@ -1206,7 +1251,7 @@ class Home():
                 return ("failed")
 
         # set temperature mode
-        elif(command = "set_temp_mode"):
+        elif(command == "set_temp_mode"):
             # check if temp_mode is given
             if("temp_mode" not in params):
                 self.Log("set_temp_mode failed, must specify \"temp_mode\"")
@@ -1283,7 +1328,7 @@ class Home():
             # get device name
             device_name = params['name']
 
-            curr_level = self.Sample_device(device_name)
+            curr_level = self.Get_device_level(device_name)
 
             if(curr_level == LEVEL_UNK):
                 return("unk")
@@ -1402,7 +1447,7 @@ class Home():
     """
     def Log(self, logstr):
         self._log.info(logstr)
-        #print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
+        print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
 
 def Update_thermostat():
     global myhome
@@ -1421,3 +1466,4 @@ if(__name__ == "__main__"):
     exit(0)
 
 myhome = Home(thermostat_function=Update_thermostat, task_function=Run_task, power_usage_function=Log_power_usages)
+
