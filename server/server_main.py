@@ -37,7 +37,7 @@ def main(args):
         return(myhome.Run_command(params))
 
     # start http server
-    app.run(host='0.0.0.0', port=PORT, ssl_context=('cert.pem', 'key.pem'))
+    app.run(host='0.0.0.0', port=PORT, ssl_context=('cert.pem', 'key.pem'), debug=True, use_reloader=False)
 
 if(__name__ == "__main__"):
     main(sys.argv)
