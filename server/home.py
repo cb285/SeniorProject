@@ -187,8 +187,10 @@ class Home():
 
             # temp mode
             self.Set_temp_mode(INIT_TEMP_MODE)
+            self._Set_curr_temp_mode("off")
             # fan mode
             self.Set_fan_mode(INIT_FAN_MODE)
+            self._Set_curr_fan_mode("off")
             # set temp
             self.Set_temp(INIT_SET_TEMP)
             # temp diffs
@@ -197,13 +199,16 @@ class Home():
 
     def Get_curr_temp(self, units=DEFAULT_TEMP_UNITS):
 
-        # acquire i2c lock
-        with self._i2c_lock:
-            # read adc
-            pass
-        
+        samples = self._Sample_xbee(pins=[TEMP_ADC_SAMPLE_IDENT])
+
+        # check if could not get sample
+        #if(not samples):
+            #return LEVEL_UNK
+
+        #adc_val = samples[TEMP_ADC_SAMPLE_IDENT]
+
         # convert to degrees F
-        curr_temp_f = 70
+        curr_temp_f = 73
 
         return self.Convert_temp(curr_temp_f, "F", units)
 
@@ -578,16 +583,17 @@ class Home():
             # if relay is on
             else:
                 # get level
-                dpot_level = int(round(100*((samples[DPOT_OUT_SAMPLE_IDENT] / 1023.0) * 1.2)))
+                dpot_level = samples[DPOT_OUT_SAMPLE_IDENT]
 
-                # adjust the level
-                if(dpot_level >= 95):
-                    dpot_level = 100
-                elif(dpot_level <= 0):
-                    dpot_level = 1
+                # calculate brightness
+                brightness = int(round(100*((dpot_level**2) / (852**2))))
 
-                # return level
-                return dpot_level
+                if(brightness >= 95):
+                    brightness = 100
+                elif(brightness <= 0):
+                    brightness = 1
+                
+                return brightness
 
     def _Sample_xbee(self, device_name=False, pins=False, timeout=DEFAULT_TIMEOUT):
         
