@@ -56,7 +56,7 @@ class Home():
         self._Setup_zigbee()
 
         # set up thermostat
-        self._Setup_therm()
+        #self._Setup_therm()
 
         # send discovery packet
         self.Send_discovery_packet()
@@ -71,7 +71,7 @@ class Home():
         #self._sched.add_job(temp_log_function, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
 
         # start thermostat updater task
-        self._sched.add_job(thermostat_function, trigger='interval', seconds=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
+        #self._sched.add_job(thermostat_function, trigger='interval', seconds=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
 
         # store task_function for adding tasks
         self._task_function = task_function
@@ -190,7 +190,7 @@ class Home():
             self._Set_curr_temp_mode("off")
             # fan mode
             self.Set_fan_mode(INIT_FAN_MODE)
-            self._Set_curr_fan_mode("off")
+            #self._Set_curr_fan_mode("off")
             # set temp
             self.Set_temp(INIT_SET_TEMP)
             # temp diffs
@@ -574,7 +574,7 @@ class Home():
                 return LEVEL_UNK
             
             relay_level = samples[RELAY_STAT_SAMPLE_IDENT]
-            
+
             # if relay is off
             if(relay_level == 0):
                 # turn off sampling
@@ -583,8 +583,8 @@ class Home():
             # if relay is on
             else:
                 # get level
-                dpot_level = samples[DPOT_OUT_SAMPLE_IDENT]
-
+                dpot_level = 852 - samples[DPOT_OUT_SAMPLE_IDENT]
+                
                 # calculate brightness
                 brightness = int(round(100*((dpot_level**2) / (852**2))))
 
@@ -773,8 +773,8 @@ class Home():
                 # if light is too bright
                 if(curr_level > level):
                     
-                    # set U/D# to low (down)
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
+                    # set U/D# to high (up)
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
                     
                     num_tries = 0
                     
@@ -795,8 +795,8 @@ class Home():
                         
                 # light is too dim
                 else:
-                    # set U/D# to high (up)
-                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
+                    # set U/D# to low (down)
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
                     
                     num_tries = 0
                     
