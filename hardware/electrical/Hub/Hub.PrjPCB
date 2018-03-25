@@ -173,6 +173,14 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
+[GeneratedDocument1]
+DocumentPath=Hub 3-24-2018 7-34-50 PM.WAS
+DItemRevisionGUID=
+
+[GeneratedDocument2]
+DocumentPath=Hub 3-24-2018 7-47-44 PM.WAS
+DItemRevisionGUID=
+
 [Configuration1]
 Name=Sources
 ParameterCount=0
