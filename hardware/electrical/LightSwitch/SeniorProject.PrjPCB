@@ -190,6 +190,10 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=JSBWBESD
 
+[GeneratedDocument1]
+DocumentPath=LightSwitch 3-24-2018 6-43-26 PM.WAS
+DItemRevisionGUID=
+
 [Configuration1]
 Name=Sources
 ParameterCount=0
