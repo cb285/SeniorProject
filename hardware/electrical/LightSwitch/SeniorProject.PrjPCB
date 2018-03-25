@@ -28,7 +28,7 @@ DItemRevisionGUID=
 ReportSuppressedErrorsInMessages=0
 FSMCodingStyle=eFMSDropDownList_OneProcess
 FSMEncodingStyle=eFMSDropDownList_OneHot
-OutputPath=
+OutputPath=Project Outputs for SeniorProject
 LogFolderPath=
 ManagedProjectGUID=
 IncludeDesignInRelease=0
@@ -190,8 +190,37 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=JSBWBESD
 
+[Document10]
+DocumentPath=Lightswitch.OutJob
+AnnotationEnabled=1
+AnnotateStartValue=1
+AnnotationIndexControlEnabled=0
+AnnotateSuffix=
+AnnotateScope=All
+AnnotateOrder=-1
+DoLibraryUpdate=1
+DoDatabaseUpdate=1
+ClassGenCCAutoEnabled=1
+ClassGenCCAutoRoomEnabled=1
+ClassGenNCAutoScope=None
+DItemRevisionGUID=
+GenerateClassCluster=0
+DocumentUniqueId=
+
 [GeneratedDocument1]
 DocumentPath=LightSwitch 3-24-2018 6-43-26 PM.WAS
+DItemRevisionGUID=
+
+[GeneratedDocument2]
+DocumentPath=LightSwitch 3-24-2018 7-16-48 PM.WAS
+DItemRevisionGUID=
+
+[GeneratedDocument3]
+DocumentPath=LightSwitch 3-25-2018 10-33-42 AM.WAS
+DItemRevisionGUID=
+
+[GeneratedDocument4]
+DocumentPath=LightSwitch 3-25-2018 10-38-13 AM.WAS
 DItemRevisionGUID=
 
 [Configuration1]
@@ -241,7 +270,7 @@ SCH_HasExpandLogicalToPhysicalSheets=-1
 SaveSettingsToOutJob=-1
 
 [Generic_EDE]
-OutputDir=
+OutputDir=Project Outputs for SeniorProject
 
 [OutputGroup1]
 Name=Netlist Outputs
