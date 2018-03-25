@@ -12,7 +12,7 @@ XB_CONF_DINPUT = b'\x03'
 XB_CONF_ADC = b'\x02'
 
 
-"""
+
 # ---------Lightswitch 1.0 PCB---------
 RELAY_TOGGLE = 'D0'
 
@@ -44,8 +44,8 @@ CURRSENSE_BIAS = 0.7
 CURRSENSE_DDROP = 0.5
 # ac voltage
 AC_VOLTAGE = 120
-"""
 
+"""
 # ---------BREADBOARD---------
 # relay toggle (toggles relay on a rising edge)
 RELAY_TOGGLE = 'D0'
@@ -66,6 +66,4 @@ DFLIPCLR_N = 'D5'
 # DPOT output pin
 DPOT_OUT = 'D3'
 DPOT_OUT_SAMPLE_IDENT = 'adc-3'
-
-
-
+"""
