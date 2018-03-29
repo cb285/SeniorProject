@@ -38,7 +38,7 @@ TEMP_LOG_TASKID = "__temp_logger_task__"
 THERM_TASKID = "__therm_task__"
 
 class Home():
-    def __init__(self, thermostat_function, power_log_function, temp_log_function):
+    def __init__(self): #, thermostat_function, power_log_function, temp_log_function):
         # setup logging
         logging.basicConfig(filename=LOG_FILENAME, level=logging.INFO, format=LOG_FORMAT, datefmt=LOG_TIMESTAMP)
         self._log = logging.getLogger('home')
@@ -83,7 +83,7 @@ class Home():
         self.Log("shutdown procedure started...")
 
         # stop scheduler
-        scheduler.shutdown()
+        self._sched.shutdown()
 
         # write device database to file
         # get db lock
@@ -144,7 +144,7 @@ class Home():
         else:
             with open(DEVICE_DB_FILENAME) as f:
                 self._device_db = json.load(f)
-            self.Log("opened existing db " + DEVICE_DB_FILENAME)
+            self.Log("opened existing device database file: " + DEVICE_DB_FILENAME)
 
     def _Setup_therm(self):
 
@@ -161,8 +161,8 @@ class Home():
         self._therm_lock = RLock()
 
         # initialize current thermostat modes
-        self._curr_temp_mode = "unk"
-        self._curr_fan_mode = "unk"
+        self._curr_temp_mode = "off"
+        self._curr_fan_mode = "off"
         
         # acquire thermostat lock
         with self._therm_lock:
@@ -177,7 +177,10 @@ class Home():
             else:
                 with open(THERM_SETTINGS_FILENAME) as f:
                     self._therm_settings = json.load(f)
-                self.Log("opened existing thermostat settings file " + THERM_SETTINGS_FILENAME)
+                self.Log("opened existing thermostat settings file: " + THERM_SETTINGS_FILENAME)
+
+            # update thermostat
+            self.Thermostat_update()
 
     def _Initialize_therm_settings(self):
 
@@ -196,8 +199,8 @@ class Home():
             self.Set_temp_upper_diff(INIT_UPPER_DIFF)
 
     def Get_curr_temp(self, units=DEFAULT_TEMP_UNITS):
-
-        samples = self._Sample_xbee(pins=[TEMP_ADC_SAMPLE_IDENT])
+        
+        samples = self._Sample_xbee()
 
         # check if could not get sample
         if(not samples):
@@ -208,11 +211,9 @@ class Home():
         adc_volts = (adc_val / 1023)*1.2
 
         self.Log("temp adc volts = " + str(adc_volts))
-        
-        # convert to degrees F
-        curr_temp_f = self.Convert_temp(((adc_volts - 0.5) / .01), "F")
 
-        return self.Convert_temp(curr_temp_f, "F", units)
+        # convert to specified units
+        return self.Convert_temp(((adc_volts - 0.5) / .01), "C", units)
 
     def Get_set_temp(self, units=DEFAULT_TEMP_UNITS):
 
@@ -329,76 +330,65 @@ class Home():
                 f.write(time.strftime(TEMP_TIMESTAMP) + "," + curr_temp + "," + TEMP_LOG_UNITS + "," +
                         self.Get_temp_mode() + "," + self.Get_fan_mode() + "\n")
 
-    def _Set_curr_therm_mode(self, temp_mode=None, fan_mode=None):
-        
-        # if changing temp mode
-        if(temp_mode):
+    def _Set_curr_fan_mode(self, fan_mode):
 
-            # check if no change is needed
-            if(temp_mode == self._curr_temp_mode):
-                pass
+        # check if no change is needed
+        if(fan_mode == self._curr_fan_mode):
+            pass
 
-            # change to cool
-            elif(temp_mode == "cool"):
-                self.Log("turning AC on")
-                # turn heat off
-                gpio.output(THERM_HEAT_CTRL, gpio.low)
-                # turn ac on
-                gpio.output(THERM_AC_CTRL, gpio.high)
-                # update current mode
-                self._curr_temp_mode = temp_mode
+        elif(fan_mode == "on"):
+            # turn fan on
+            self.Log("turning fan on")
+            gpio.output(THERM_FAN_CTRL, gpio.HIGH)
+            self._curr_fan_mode = fan_mode
 
-            # change to heat
-            elif(temp_mode == "heat"):
-                self.Log("turning heat on")
-                # turn cool off
-                gpio.output(THERM_AC_CTRL, gpio.low)
-                # turn heat on
-                gpio.output(THERM_HEAT_CTRL, gpio.high)
-                # update current mode
-                self._curr_temp_mode = temp_mode
+        elif(fan_mode == "off"):
+            # turn fan off
+            self.Log("turning fan off")
+            gpio.output(THERM_FAN_CTRL, gpio.LOW)
+            self._curr_fan_mode = fan_mode
 
-            # change to off
-            elif(temp_mode == "off"):
-                self.Log("turning heat/AC off")
-                # turn cool off
-                gpio.output(THERM_AC_CTRL, gpio.low)
-                # turn heat off
-                gpio.output(THERM_HEAT_CTRL, gpio.high)
-                # update current mode
-                self._curr_temp_mode = temp_mode
-            # invalid mode
-            else:
-                self.Log("invalid temp_mode: " + str(temp_mode))
+        else:
+            self.Log("invalid fan mode: " + str(fan_mode))
 
-        # if changing fan mode
-        if(fan_mode):
+    def _Set_curr_temp_mode(self, temp_mode):
 
-            # check if no change is needed
-            if(fan_mode == self._curr_fan_mode):
-                pass
+        # check if no change is needed
+        if(temp_mode == self._curr_temp_mode):
+            pass
 
-            # change to on
-            elif(fan_mode == "on"):
-                self.Log("turning fan on")
-                # turn fan on
-                gpio.output(THERM_FAN_CTRL, gpio.high)
-                # update current mode
-                self._curr_fan_mode = fan_mode
+        # change to cool
+        elif(temp_mode == "cool"):
+            self.Log("turning AC on")
+            # turn heat off
+            gpio.output(THERM_HEAT_CTRL, gpio.LOW)
+            # turn ac on
+            gpio.output(THERM_AC_CTRL, gpio.HIGH)
+            # update current mode
+            self._curr_temp_mode = temp_mode
+            
+        # change to heat
+        elif(temp_mode == "heat"):
+            self.Log("turning heat on")
+            # turn cool off
+            gpio.output(THERM_AC_CTRL, gpio.LOW)
+            # turn heat on
+            gpio.output(THERM_HEAT_CTRL, gpio.HIGH)
+            # update current mode
+            self._curr_temp_mode = temp_mode
 
-            # change to off
-            elif(fan_mode == "off"):
-                self.Log("turning fan off")
-                # turn ac off
-                gpio.output(THERM_AC_CTRL, gpio.low)
-                # turn heat off
-                gpio.output(THERM_HEAT_CTRL, gpio.low)
-                # turn fan off
-                gpio.output(THERM_FAN_CTRL, gpio.low)
-                # update current mode
-                self._curr_fan_mode = fan_mode
-            else:
-                self.Log("invalid fan_mode: " + str(fan_mode))
+        # change to off
+        elif(temp_mode == "off"):
+            self.Log("turning heat/AC off")
+            # turn cool off
+            gpio.output(THERM_AC_CTRL, gpio.LOW)
+            # turn heat off
+            gpio.output(THERM_HEAT_CTRL, gpio.LOW)
+            # update current mode
+            self._curr_temp_mode = temp_mode
+        # invalid mode
+        else:
+            self.Log("invalid temp mode: " + str(temp_mode))
 
     def Thermostat_update(self):
         # acquire thermostat lock
@@ -419,55 +409,65 @@ class Home():
 
             self.Log("curr temp = " + str(curr_temp))
             self.Log("set temp = " + str(set_temp))
+
+            self.Log("set temp mode = " + temp_mode)
+            self.Log("set fan mode = " + fan_mode)
+
+            self.Log("curr temp mode = " + curr_temp_mode)
+            self.Log("curr fan mode = " + curr_fan_mode)
             
             # get difference from set temperature
             temp_diff = curr_temp - set_temp
 
             # if temperature is too high
             if(temp_diff > upper_diff):
+                self.Log("too high")
                 # check if should change current fan mode
                 if(curr_fan_mode != "on"):
                     # check if can change current fan mode
                     if(fan_mode in ["on", "auto"]):
                         # turn fan on
-                        self._Set_curr_therm_mode(fan_mode="on")
+                        self._Set_curr_fan_mode("on")
 
-                    # check if should change current temp mode
-                    if(curr_temp_mode != "cool"):
-                        # check if can change current temp mode
-                        if(temp_mode in ["cool", "auto"]):
-                            # turn on ac
-                            self._Set_curr_therm_mode(temp_mode="cool")
+                        # check if should change current temp mode
+                        if(curr_temp_mode != "cool"):
+                            # check if can change current temp mode
+                            if(temp_mode in ["cool", "auto"]):
+                                # turn on ac
+                                self._Set_curr_temp_mode("cool")
             # if temperature is too low
             elif(-1*temp_diff > lower_diff):
+                self.Log("too low")
                 # check if should change current fan mode
                 if(curr_fan_mode != "on"):
                     # check if can change current fan mode
                     if(fan_mode in ["on", "auto"]):
                         # turn fan on
-                        self._Set_curr_therm_mode(fan_mode="on")
-                    
-                    # check if should change current temp mode
-                    if(curr_temp_mode in ["heat", "auto"]):
-                        # check if can change current temp mode
-                        if(temp_mode in ["heat", "auto"]):
-                            # turn on heat
-                            self._Set_curr_therm_mode(temp_mode="heat")
+                        self._Set_curr_fan_mode("on")
+
+                        # check if should change current temp mode
+                        if(curr_temp_mode != "heat"):
+                            # check if can change current temp mode
+                            if(temp_mode in ["heat", "auto"]):
+                                # turn on heat
+                                self._Set_curr_temp_mode("heat")
+
             # if temperature is within bounds
             else:
+                self.Log("just right")
                 # check if should change current fan mode
                 if(curr_fan_mode != "off"):
                     # check if can change current fan mode
                     if(fan_mode in ["off", "auto"]):
                         # turn fan off
-                        self._Set_curr_therm_mode(fan_mode="off")
+                        self._Set_curr_fan_mode("off")
                     
                     # check if should change current temp mode
-                    if(curr_temp_mode != "cool"):
+                    if(curr_temp_mode != "off"):
                         # check if can change current temp mode
                         if(temp_mode in ["cool", "auto"]):
                             # turn on ac
-                            self._Set_curr_therm_mode(temp_mode="cool")
+                            self._Set_curr_temp_mode("off")
 
     def Get_power_usage(self, device_name):
         
@@ -499,7 +499,7 @@ class Home():
         # return approximate real power (mW)
         return int(round(apparent_power * power_factor))
 
-    def Log_power_usages(self):
+    def Log_power_usage(self):
 
         # get database lock
         with self._db_lock:
@@ -642,6 +642,9 @@ class Home():
                         try:
                             # wait for a packet
                             packet = self._packet_queue.get(block=True, timeout=timeout)
+
+                            self.Log("packet = " + str(packet))
+                            
                         except Empty:
                             packet = False
                             
@@ -656,7 +659,13 @@ class Home():
 
                         # check if packet is from desired device
                         if("source_addr_long" not in packet):
-                            continue
+                            if(not device_name):
+                                if("parameter" in packet):
+                                    return packet["parameter"][0]
+                                else:
+                                    continue
+                            else:
+                                continue
                         if((bytearray(packet['source_addr_long'])) != bytes_mac):
                             continue
 
@@ -1250,14 +1259,14 @@ class Home():
                 self.Log("set_temp failed, must specify \"temp\"")
                 return "failed"
 
-            temp = int(params["temp"])
+            temp = float(params["temp"])
             
             # check if units are specified
             if("units" in params):
                 units = params["units"][0].upper()
                 success = self.Set_temp(temp, units=units)
             else:
-                success = Set_temp(temp)
+                success = self.Set_temp(temp)
 
             if(success):
                 return ("ok")
