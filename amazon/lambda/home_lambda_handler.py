@@ -2,7 +2,10 @@ from requests import *
 import string
 from word2number import w2n
 
-SERVER_URL = "https://clayton:clayton@192.195.228.50:58000"
+USER = "clayton"
+PASSWORD = "clayton"
+
+SERVER_URL = "https://" + USER + ":" + PASSWORD + "@192.195.228.50:58000"
 VERIFY_SSL = False
 
 # create translator for removing punctuation
@@ -10,6 +13,30 @@ translator=str.maketrans('','',string.punctuation)
 
 def remove_punct(s):
     return s.translate(translator).lower()
+
+def parse_name_to_level(name_to_level):
+    split_str = name_to_level.split(" to ")
+    
+    if(len(split_str) != 2):
+        if(len(split_str) == 1):
+            if(":" in name_to_level):
+                split_str = split_str[0].split(":")
+                hour = int(split_str[0].split(" ")[-1])
+                minute = int(split_str[1])
+
+                level = hour + 1
+                name_to_parse = split_str[0][:-2] + str(60 - minute)
+
+                device_name = parse_name(name_to_parse)
+
+                return device_name, level
+
+        return "", -1
+
+    device_name = parse_name(split_str[0])
+    level = parse_level(split_str[1])
+
+    return device_name, level
 
 def parse_level(s):
 
@@ -39,8 +66,6 @@ def parse_name(s):
 
     # split by spaces
     words = s.split(" ")
-    
-    print("words: " + str(words))
 
     was_num = False
 
@@ -58,11 +83,7 @@ def parse_name(s):
                     device_name = device_name + word + "_"
                 was_num = False
                 continue
-            print("num = " + str(number))
-            if(was_num):
-                device_name = device_name + str(number)
-            else:
-                device_name = device_name + "_" + str(number)
+            device_name = device_name + str(number)
             was_num = True
 
     # remove extra "_"
@@ -86,9 +107,12 @@ def lambda_handler(event, context):
 
                 if(intent_name == "test"):
 
-                    split_str = slots["test_name"]["value"].split(" to ")
-                    device_name = parse_name(split_str[0])
-                    level = parse_level(split_str[1])
+                    name_to_level = slots["name_to_level"]["value"]
+
+                    device_name, level = parse_name_to_level(name_to_level)
+
+                    if(level == -1):
+                        return build_response("sorry, I couldn't catch the device name or level. please try again.")
 
                     return build_response("device name is " + device_name + " and level is " + str(level))
 
@@ -110,26 +134,18 @@ def lambda_handler(event, context):
                 # set_device_level intent
                 elif(intent_name == "set_device_level"):
                     if("value" in slots["name_to_level"]):
-
-                        split_str = s.split(" to ")
-
-                        if(len(split_str) != 2):
-                            return build_response("sorry, I couldn't hear the device name or level. please try again.")
-
-                        cmd = "set_device_level"
-                        device_name = parse_name(split_str[0])
-                        level = parse_level(split_str[1])
-
-                        # if couldn't parse level
+                        
+                        device_name, level = parse_name_to_level(slots["name_to_level"]["value"])
+                        
                         if(level == -1):
-                            return build_response("sorry, I couldn't understand the level you wanted to set it to. please try again.")
+                            return build_response("sorry, I couldn't catch the device name or level. please try again.")
                         
                         payload = {"cmd":cmd, 'name':device_name, 'level':level}
                         stat = server_request(payload)
-
+                        
                         if(stat):
                             return build_response("okay, I set " + device_name + " to " + str(level) + ".")
-                            
+
                         else:
                             return build_response("sorry, I couldn't do that. check that the device is turned on and in the database.")
 
@@ -138,10 +154,10 @@ def lambda_handler(event, context):
 
                 # get_device_level intent
                 elif(intent_name == "get_device_level"):
-                    if("value" in slots["device_name"]):
+                    if("value" in slots["name"]):
 
                         cmd = "get_device_level"
-                        device_name = parse_name(slots["device_name"]["value"])
+                        device_name = parse_name(slots["name"]["value"])
 
                         payload = {"cmd":cmd, 'name':device_name}
 
@@ -193,6 +209,18 @@ def lambda_handler(event, context):
                                 return build_response("okay, I changed " + device_name + " to " + new_device_name + ".")
                             else:
                                 return build_response("sorry, I couldn't do that. make sure there is a device in the database called " + device_name + ".")
+                    elif(intent_name == "remove_device"):
+                        if("name" in slots):
+                            device_name = parse_name(slots["name"]["value"])
+
+                            payload = {'cmd':'remove_device', 'name':device_name}
+
+                            stat = server_request(payload)
+
+                            if(stat):
+                                return build_response("okay, I removed " + device_name + " from the database.")
+                            else:
+                                return build_response("sorry, I couldn't do that. make sure there is a device in the database called " + device_name + ".")
 
                     else:
                         return build_response("sorry, I couldn't understand that. here's an example: set the temperature to 70 degrees")
@@ -213,14 +241,12 @@ def build_response(resp_str):
             "shouldEndSession": True
         }
     }
-    
+
 def server_request(payload):
 
     r = get(SERVER_URL, params=payload, verify=False)
     
     response = r.text
-    
-    print("response = " + str(r))
     
     if(response.isdigit()):
         return (int(response))
