@@ -8,6 +8,8 @@ PASSWORD = "clayton"
 SERVER_URL = "https://" + USER + ":" + PASSWORD + "@192.195.228.50:58000"
 VERIFY_SSL = False
 
+SERVER_TIMEOUT = 5
+
 # create translator for removing punctuation
 translator=str.maketrans('','',string.punctuation)
 
@@ -101,9 +103,12 @@ def lambda_handler(event, context):
                 
                 intent = event['request']['intent']
                 intent_name = intent['name']
-                
-                if(intent_name != "discover_devices"):
-                    slots = intent['slots']
+
+                # get slots (if any)
+                try:
+                    slots = intent["slots"]
+                except KeyError:
+                    pass
 
                 if(intent_name == "test"):
 
@@ -130,7 +135,33 @@ def lambda_handler(event, context):
                         return build_response("okay, trying to discover new devices")
                     else:
                         return build_response("sorry, something went wrong. please try again")
-                
+
+                elif(intent_name == "list_devices"):
+
+                    cmd = "list_devices"
+                    
+                    payload = {"cmd":cmd}
+                    s = server_request(payload)
+                    
+                    if(not s):
+                        return build_response("sorry, something went wrong. please try again.")
+
+                    if(s == "none"):
+                        return build_response("there are currently zero devices in the database.")
+
+                    device_list = s.split(",")
+
+                    device_list_str = ""
+
+                    # combine in string
+                    for device_name in device_list:
+                        device_list_str = device_list_str + device_name + ", "
+
+                    # remove extra ", "
+                    device_list_str = device_list_str[:-2]
+
+                    return build_response("there are currently " + str(len(device_list)) + " devices in the database: " + device_list_str)
+                    
                 # set_device_level intent
                 elif(intent_name == "set_device_level"):
                     if("value" in slots["name_to_level"]):
@@ -244,7 +275,7 @@ def build_response(resp_str):
 
 def server_request(payload):
 
-    r = get(SERVER_URL, params=payload, verify=False)
+    r = get(SERVER_URL, params=payload, verify=False, timeout=SERVER_TIMEOUT)
     
     response = r.text
     
