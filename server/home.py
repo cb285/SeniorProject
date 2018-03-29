@@ -1419,9 +1419,10 @@ class Home():
                 return ("none")
             
             for k in self._device_db:
-                device_list = device_list + "," + k
+                device_list = device_list + k + ","
 
-            return (device_list)
+            # return without extra ","
+            return (device_list[:-1])
 
         elif(command == "list_devices_with_types"):
             device_list = ""
@@ -1429,10 +1430,11 @@ class Home():
             if(len(self._device_db) == 0):
                 return ("none")
             
-            for k in self._device_db:
-                device_list = device_list + "," + k
+            for device_name in self._device_db:
+                device_list = device_list + device_name + ":" + self._device_db[device_name]["type"] + ","
 
-            return (device_list)
+            # return without extra ","
+            return (device_list[:-1])
 
         # add a task
         elif(command == "add_task"):
