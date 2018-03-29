@@ -14,26 +14,24 @@ def remove_punct(s):
 def parse_level(s):
 
     s = remove_punct(s)
+
+    # on
+    if(s == "on"):
+        return 100
+    # dim or dimmed
+    elif(s in ["dim", "dimmed"]):
+        return 50
+    # off
+    elif(s == "off"):
+        return 0
     
     try:
         # number or number words
         number = w2n.word_to_num(s)
-    
     except ValueError:
         return -1
-    
-    if(number != None):
-        return number
-    # "on", "off, "dim", or "dimmed"
-    else:
-        if(s == "on"):
-            return 100
-        elif(s in ["dim", "dimmed"]):
-            return 50
-        elif(s == "off"):
-            return 0
-        else:
-            return -1
+
+    return number
 
 def parse_name(s):
     # remove punctuation
@@ -197,8 +195,6 @@ def build_response(resp_str):
     }
     
 def server_request(payload):
-
-    payload['alexa'] = "alexa"
 
     r = get(SERVER_URL, params=payload, verify=False)
     
