@@ -39,15 +39,35 @@ def parse_name(s):
 
     # split by spaces
     words = s.split(" ")
+    
+    print("words: " + str(words))
+
+    was_num = False
 
     # combine words to underscore separated string
     device_name = ""
     for word in words:
         if(word != " "):
-            device_name = device_name + word + "_"
+            try:
+                # check if number or number words
+                number = w2n.word_to_num(word)
+            except ValueError:
+                if(was_num):
+                    device_name = device_name + "_" + word + "_"
+                else:
+                    device_name = device_name + word + "_"
+                was_num = False
+                continue
+            print("num = " + str(number))
+            if(was_num):
+                device_name = device_name + str(number)
+            else:
+                device_name = device_name + "_" + str(number)
+            was_num = True
 
     # remove extra "_"
-    device_name = device_name[:-1]
+    if(not was_num):
+        device_name = device_name[:-1]
 
     # return
     return device_name
