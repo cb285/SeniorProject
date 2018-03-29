@@ -32,6 +32,15 @@ def parse_name_to_level(name_to_level):
                 device_name = parse_name(name_to_parse)
 
                 return device_name, level
+            else:
+                name_turn = split_str[0]
+                split_str = name_turn.split(" ")
+                if(split_str[-1] in ["on", "off", "dim", "dimmed"]):
+                    device_name = parse_name(name_turn[:-len(split_str[-1])])
+
+                    level = parse_level(split_str[-1])
+
+                    return device_name, level
 
         return "", -1
 
@@ -75,6 +84,10 @@ def parse_name(s):
     device_name = ""
     for word in words:
         if(word != " "):
+            if(word in ["a", "b", "c", "d", "e", "f"]):
+                device_name = device_name + str(word)
+                was_num = True
+                continue
             try:
                 # check if number or number words
                 number = w2n.word_to_num(word)
@@ -87,9 +100,9 @@ def parse_name(s):
                 continue
             device_name = device_name + str(number)
             was_num = True
-
+    
     # remove extra "_"
-    if(not was_num):
+    while(device_name[-1] == "_"):
         device_name = device_name[:-1]
 
     # return
@@ -160,6 +173,8 @@ def lambda_handler(event, context):
                     # remove extra ", "
                     device_list_str = device_list_str[:-2]
 
+                    if(len(device_list) == 1):
+                        return build_response("there is currently one device in the database: " + device_list_str)
                     return build_response("there are currently " + str(len(device_list)) + " devices in the database: " + device_list_str)
                     
                 # set_device_level intent
@@ -171,11 +186,12 @@ def lambda_handler(event, context):
                         if(level == -1):
                             return build_response("sorry, I couldn't catch the device name or level. please try again.")
                         
+                        cmd = "set_device_level"
                         payload = {"cmd":cmd, 'name':device_name, 'level':level}
                         stat = server_request(payload)
                         
                         if(stat):
-                            return build_response("okay, I set " + device_name + " to " + str(level) + ".")
+                            return build_response("okay, I set " + device_name.replace("_", " ") + " to " + str(level) + ".")
 
                         else:
                             return build_response("sorry, I couldn't do that. check that the device is turned on and in the database.")
@@ -284,5 +300,7 @@ def server_request(payload):
     else:
         if(response == "ok"):
             return True
-        else:
+        elif(response == "failed"):
             return False
+        else:
+            return response
