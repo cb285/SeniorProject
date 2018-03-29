@@ -20,10 +20,8 @@ from logging_constants import *
 from xbee_constants import *
 
 DEVICE_DB_FILENAME = ".devices.json"               # path to device db file
-TASKS_DB_FILENAME = "sqlite:///.tasks.db"          # path to task db file
+#TASKS_DB_FILENAME = "sqlite:///.tasks.db"          # path to task db file
 THERM_SETTINGS_FILENAME = ".thermostat.json"       # path to thermostat settings file
-SETUP_WAIT = 5                                     # time in seconds to wait for samples to be received on server startup
-DISCOVERY_TASKID = "__discovery_task__"               # task id to use for network discovery task
 LEVEL_UNK = -1                                     # special device level used to mean level is unknown
 
 COORDINATOR_MAC = "0013a20041553733"
@@ -40,7 +38,7 @@ TEMP_LOG_TASKID = "__temp_logger_task__"
 THERM_TASKID = "__therm_task__"
 
 class Home():
-    def __init__(self, thermostat_function, task_function, power_usage_function):
+    def __init__(self, thermostat_function, power_log_function, temp_log_function):
         # setup logging
         logging.basicConfig(filename=LOG_FILENAME, level=logging.INFO, format=LOG_FORMAT, datefmt=LOG_TIMESTAMP)
         self._log = logging.getLogger('home')
@@ -50,13 +48,13 @@ class Home():
 
         # setup task scheduler
         self._sched = BackgroundScheduler()
-        self._sched.add_jobstore('sqlalchemy', url=TASKS_DB_FILENAME)
+        #self._sched.add_jobstore('sqlalchemy', url=TASKS_DB_FILENAME)
 
         # set up zigbee
         self._Setup_zigbee()
 
         # set up thermostat
-        #self._Setup_therm()
+        self._Setup_therm()
 
         # send discovery packet
         self.Send_discovery_packet()
@@ -65,16 +63,13 @@ class Home():
         self._sched.start()
 
         # start power usage logger task
-        #self._sched.add_job(power_log_function, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
+        self._sched.add_job(self.Log_power_usage, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
 
         # start temperature logger task
-        #self._sched.add_job(temp_log_function, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
+        self._sched.add_job(self.Log_temp, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
 
         # start thermostat updater task
-        #self._sched.add_job(thermostat_function, trigger='interval', seconds=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
-
-        # store task_function for adding tasks
-        self._task_function = task_function
+        self._sched.add_job(self.Thermostat_update, trigger='interval', seconds=THERM_INTERVAL, id=THERM_TASKID, replace_existing=True)
 
         # register shutdown proceedure
         atexit.register(self.Exit)
@@ -86,7 +81,10 @@ class Home():
 
         # log
         self.Log("shutdown procedure started...")
-        
+
+        # stop scheduler
+        scheduler.shutdown()
+
         # write device database to file
         # get db lock
         with self._db_lock:
@@ -202,13 +200,17 @@ class Home():
         samples = self._Sample_xbee(pins=[TEMP_ADC_SAMPLE_IDENT])
 
         # check if could not get sample
-        #if(not samples):
-            #return LEVEL_UNK
+        if(not samples):
+            return LEVEL_UNK
 
-        #adc_val = samples[TEMP_ADC_SAMPLE_IDENT]
+        adc_val = samples[TEMP_ADC_SAMPLE_IDENT]
 
+        adc_volts = (adc_val / 1023)*1.2
+
+        self.Log("temp adc volts = " + str(adc_volts))
+        
         # convert to degrees F
-        curr_temp_f = 73
+        curr_temp_f = self.Convert_temp(((adc_volts - 0.5) / .01), "F")
 
         return self.Convert_temp(curr_temp_f, "F", units)
 
@@ -415,6 +417,9 @@ class Home():
             # get current temperature
             curr_temp = self.Get_curr_temp(units="F")
 
+            self.Log("curr temp = " + str(curr_temp))
+            self.Log("set temp = " + str(set_temp))
+            
             # get difference from set temperature
             temp_diff = curr_temp - set_temp
 
@@ -1091,6 +1096,7 @@ class Home():
     once:
        all of the following: "year", "month", "day", "hour", "minute", "second"
     """
+    """
     def Add_task(self, params):
         
         if("task_type" not in params):
@@ -1191,6 +1197,7 @@ class Home():
 
     def Get_tasks(self):
         return self._sched.get_jobs()
+    """
 
     """
     Function: Run_command
@@ -1198,9 +1205,10 @@ class Home():
     commands = test, get(level), set(level), add(name, mac, type), remove(name)
     """
     def Run_command(self, params):
-        
+        """
         if("task_id" in params):
             self.Log("executing task \"" + params["task_id"] + "\"")
+        """
 
         # get the command
         if("cmd" in params):
@@ -1360,9 +1368,9 @@ class Home():
             device_name = params['name']
             mac = params['mac']
             device_type = params['type']
-            
+
             success = self.Add_device(device_name, mac, device_type)
-            
+
             if(success):
                 return("ok")
             else:
@@ -1376,9 +1384,9 @@ class Home():
                 return("failed")
             
             device_name = params['name']
-            
+
             success = self.Remove_device(device_name)
-            
+
             if(success):
                 return("ok")
             else:
@@ -1436,6 +1444,11 @@ class Home():
             # return without extra ","
             return (device_list[:-1])
 
+        else:
+            self.Log("recieved invalid command")
+            return("invalid")
+        
+        """
         # add a task
         elif(command == "add_task"):
             success = self.Add_task(params)
@@ -1444,10 +1457,7 @@ class Home():
                 return("ok")
             else:
                 return("failed")
-
-        else:
-            self.Log("recieved invalid command")
-            return("invalid")
+        """
 
     """
     Function: Log
@@ -1457,21 +1467,33 @@ class Home():
         self._log.info(logstr)
         print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
 
+"""
 def Update_thermostat():
     global myhome
     myhome.Thermostat_update()
-        
+"""
+
+"""
 def Run_task(task):
     global myhome
     myhome.Run_command(task)
+"""
 
-def Log_power_usages():
+"""
+def Log_power_usage():
     global myhome
     myhome.Log_power_usages()
+"""
+
+"""
+def Log_temp():
+    global myhome
+    myhome.Log_power_usages()
+"""
 
 if(__name__ == "__main__"):
     print("this is a library. import it to use it")
     exit(0)
 
-myhome = Home(thermostat_function=Update_thermostat, task_function=Run_task, power_usage_function=Log_power_usages)
+myhome = Home() #thermostat_function=Update_thermostat, power_usage_function=Log_power_usages) # task_function=Run_task
 
