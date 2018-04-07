@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import time
@@ -20,7 +20,10 @@ from kivy.clock import Clock
 from kivy.properties import *
 from kivy.uix.dropdown import DropDown
 
-SERVER_URL = "https://clayton:clayton@192.195.228.50:58000"
+USER="clayton"
+PASS="clayton"
+SERVER_URL = "https://USER:PASS@10.10.1.251:58000"
+VERIFY_SSL = False
 TIME_FORMAT = "%A %m-%d %I:%M %p" # clock time/date format
 
 REQUEST_TIMEOUT = 1 # seconds to wait for server response
@@ -38,7 +41,7 @@ LEVEL_UNK = -1
 
 def Server_request(payload):
     try:
-        r = requests.get(SERVER_URL, params=payload, verify=False, timeout=REQUEST_TIMEOUT)
+        r = requests.get(SERVER_URL, params=payload, verify=VERIFY_SSL, timeout=REQUEST_TIMEOUT)
     except requests.exceptions.Timeout:
         return False
 
@@ -46,8 +49,7 @@ def Server_request(payload):
     
     if(resp == RESPONSE_FAILED):
         return False
-
-    if(resp == RESPONSE_OK):
+    elif(resp == RESPONSE_OK):
         return True
 
     if(resp == "invalid"):
@@ -210,6 +212,8 @@ class ThermTab(TabbedPanelItem):
 
         self.update_clock()
 
+        self.update_therm()
+        
         # schedule thermostat updates
         Clock.schedule_interval(self.update_therm, THERMOSTAT_UPDATE)
 
@@ -243,13 +247,13 @@ class ThermTab(TabbedPanelItem):
         temp_mode = Get_temp_mode()
 
         # update temperature mode label
-        self.temp_mode_label.text = "Mode: " + temp_mode[0].upper() + temp_mode[1:]
+        self.temp_mode_label.text = "Mode: " + temp_mode
         
         # get fan mode
         fan_mode = Get_temp_mode()
         
         # update fan mode label
-        self.fan_mode_label.text = "Fan: " + fan_mode[0].upper() + temp_mode[1:]
+        self.fan_mode_label.text = "Fan: " + fan_mode
 
     def change_set_temp(self, event):
         # increase
@@ -502,7 +506,7 @@ class MainWindow(TabbedPanel):
         self.device_tab = DeviceTab()
         self.add_widget(self.device_tab)
 
-class TestApp(App):
+class App(App):
     
     title = "Control Panel"
     
@@ -510,23 +514,14 @@ class TestApp(App):
         return MainWindow()
 
 def main(args):
-    """
     # test connection to server
     payload = {'cmd':'test'}
-    
-    try:
-        r = requests.get(SERVER_URL, params=payload)
-    except requests.exceptions.ConnectionError:
-        print("ERROR: could not connect to server")
-        return
-    
-    if (r.text == "OK"):
-        TestApp().run()
+
+    if (Server_request(payload)):
+        App().run()
     else:
         print("ERROR: could not connect to server")
         return
-    """
-    TestApp().run()
  
 if (__name__ == "__main__"):
     main(sys.argv)

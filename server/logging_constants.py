@@ -5,7 +5,7 @@ POWER_TIMESTAMP = LOG_TIMESTAMP
 TEMP_TIMESTAMP = LOG_TIMESTAMP
 
 POWER_LOG_FILENAME = "power_log.csv"
-POWER_LOG_INTERVAL = 10 # interval in minutes
+POWER_LOG_INTERVAL = .1 # interval in minutes
 
 TEMP_LOG_FILENAME = "temp_log.csv"
 TEMP_LOG_INTERVAL = 10 # interval in minutes

@@ -63,7 +63,7 @@ class Home():
         self._sched.start()
 
         # start power usage logger task
-        self._sched.add_job(self.Log_power_usage, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
+        #self._sched.add_job(self.Log_power_usage, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
 
         # start temperature logger task
         self._sched.add_job(self.Log_temp, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
@@ -191,7 +191,7 @@ class Home():
             self._Set_curr_temp_mode("off")
             # fan mode
             self.Set_fan_mode(INIT_FAN_MODE)
-            #self._Set_curr_fan_mode("off")
+            self._Set_curr_fan_mode("off")
             # set temp
             self.Set_temp(INIT_SET_TEMP)
             # temp diffs
@@ -277,12 +277,15 @@ class Home():
 
     def Set_temp_mode(self, temp_mode):
 
-        if(temp_mode not in ["heat", "cool", "off"]):
+        if(temp_mode not in ["auto", "heat", "cool", "off"]):
             self.Log("invalid temp_mode: " + str(temp_mode))
             return False
 
         with self._therm_lock:
             self._therm_settings["temp_mode"] = temp_mode
+
+        # update thermostat
+        Thread(target=lambda: self.Thermostat_update()).start()
 
         return True
 
@@ -295,6 +298,9 @@ class Home():
         with self._therm_lock:
             self._therm_settings["fan_mode"] = fan_mode
 
+        # update thermostat
+        Thread(target=lambda: self.Thermostat_update()).start()
+            
         return True
     
     def Get_temp_mode(self):
@@ -407,6 +413,10 @@ class Home():
             # get current temperature
             curr_temp = self.Get_curr_temp(units="F")
 
+            if(curr_temp == LEVEL_UNK):
+                self.Log("temperature could not be measured, doing nothing")
+                return
+            
             self.Log("curr temp = " + str(curr_temp))
             self.Log("set temp = " + str(set_temp))
 
@@ -415,7 +425,17 @@ class Home():
 
             self.Log("curr temp mode = " + curr_temp_mode)
             self.Log("curr fan mode = " + curr_fan_mode)
-            
+
+            # if fan set to off or on
+            if(fan_mode != "auto"):
+                self._Set_curr_fan_mode(fan_mode)
+
+                # if fan is off, turn ac/heat off too
+                if(self._curr_fan_mode == "off"):
+                    self._Set_curr_temp_mode("off")
+                elif(self._curr_fan_mode == "on"):
+                    self._Set_curr_temp_mode(temp_mode)
+
             # get difference from set temperature
             temp_diff = curr_temp - set_temp
 
@@ -429,12 +449,13 @@ class Home():
                         # turn fan on
                         self._Set_curr_fan_mode("on")
 
-                        # check if should change current temp mode
-                        if(curr_temp_mode != "cool"):
-                            # check if can change current temp mode
-                            if(temp_mode in ["cool", "auto"]):
-                                # turn on ac
-                                self._Set_curr_temp_mode("cool")
+                # check if should change current temp mode
+                if(curr_temp_mode != "cool" and fan_mode != "off"):
+                    # check if can change current temp mode
+                    if(temp_mode in ["cool", "auto"]):
+                        # turn on ac
+                        self._Set_curr_temp_mode("cool")
+
             # if temperature is too low
             elif(-1*temp_diff > lower_diff):
                 self.Log("too low")
@@ -445,12 +466,12 @@ class Home():
                         # turn fan on
                         self._Set_curr_fan_mode("on")
 
-                        # check if should change current temp mode
-                        if(curr_temp_mode != "heat"):
-                            # check if can change current temp mode
-                            if(temp_mode in ["heat", "auto"]):
-                                # turn on heat
-                                self._Set_curr_temp_mode("heat")
+                # check if should change current temp mode
+                if(curr_temp_mode != "heat" and fan_mode != "off"):
+                    # check if can change current temp mode
+                    if(temp_mode in ["heat", "auto"]):
+                        # turn on heat
+                        self._Set_curr_temp_mode("heat")
 
             # if temperature is within bounds
             else:
@@ -472,8 +493,8 @@ class Home():
     def Get_power_usage(self, device_name):
         
         # sample device's current sense pin
-        sample_val = _Sample_xbee(device_name, pins=[CURRSENSE_SAMPLE_IDENT])
-
+        sample_val = self._Sample_xbee(device_name, pins=[CURRSENSE_SAMPLE_IDENT])[CURRSENSE_SAMPLE_IDENT]
+        
         # if could not get sample
         if(sample_val == LEVEL_UNK):
             return LEVEL_UNK
@@ -482,7 +503,7 @@ class Home():
         sample_voltage = (sample_val / 1023.0) * 1.2
 
         # convert to ac current amplitude (mA)
-        ac_current = ((sample_voltage - CURRSENSE_BIAS + CURRSENSE_DDROP) / 66.66)
+        ac_current = (sample_voltage*(1.25)) / .1
 
         # calculate apparent power (mVA)
         apparent_power = ac_current*AC_VOLTAGE
@@ -501,9 +522,11 @@ class Home():
 
     def Log_power_usage(self):
 
+        self.Log("logging power usage")
+        
         # get database lock
         with self._db_lock:
-
+            
             # if file is not already created
             if(not os.path.isfile(POWER_LOG_FILENAME)):
                 with open(POWER_LOG_FILENAME, 'a+') as f:
@@ -514,9 +537,10 @@ class Home():
             
                 # for each device in database
                 for device_name in self._device_db:
-                    
+
                     # get current power usage
-                    power_usage = Get_power_usage(device_name)
+                    power_usage = self.Get_power_usage(device_name)
+                    self.Log("power usage = " + str(power_usage))
 
                     # add line to csv
                     f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + power_usage + "\n")
@@ -601,9 +625,11 @@ class Home():
                 return brightness
 
     def _Sample_xbee(self, device_name=False, pins=False, timeout=DEFAULT_TIMEOUT):
+
+        self.Log("in sample_xbee")
         
         # if remote device
-        if(device_name):
+        if(device_name != False):
             # get db lock
             with self._db_lock:
                 
@@ -630,7 +656,8 @@ class Home():
             with self._zb_lock:
                 try:
                     # if remote device
-                    if(device_name):
+                    if(device_name != False):
+                        self.Log("requesting sample")
                         # request sample (periodic sampling every 255 ms)
                         self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x0FF')
                     else:
@@ -656,7 +683,7 @@ class Home():
                             else:
                                 self.Log("could not get sample from local xbee, check the device")
                                 return False
-
+                            
                         # check if packet is from desired device
                         if("source_addr_long" not in packet):
                             if(not device_name):
@@ -666,9 +693,11 @@ class Home():
                                     continue
                             else:
                                 continue
+                            
                         if((bytearray(packet['source_addr_long'])) != bytes_mac):
+                            self.Log("mac doesn't match")
                             continue
-
+                        
                         # check if sample packet
                         if("samples" in packet):                        
                             samples = packet["samples"][0]
@@ -682,8 +711,7 @@ class Home():
                             for pin in pins:
                                 if(pin not in samples):
                                     continue
-                                
-                                if(type(samples[pin]) is bool):
+                                elif(type(samples[pin]) is bool):
                                     if(samples[pin]):
                                         sample_dict[pin] = 100
                                     else:
@@ -760,8 +788,6 @@ class Home():
         with self._zb_lock:
             # set relay toggle pin high
             self._zb.remote_at(dest_addr_long=device_mac, command=RELAY_TOGGLE, parameter=XB_CONF_HIGH)
-            # wait
-            time.sleep(WAIT_TIME)
             # make relay toggle pin low
             self._zb.remote_at(dest_addr_long=device_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
 
@@ -780,6 +806,11 @@ class Home():
                 self._Toggle_relay(device_name)
                 
                 curr_level = self.Get_device_level(device_name)
+
+            if(level == 0):
+                if(curr_level != 0):
+                    self._Toggle_relay(device_name)
+                
             try:
                 # set D flip flop CLR# to low (cleared)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
@@ -928,7 +959,7 @@ class Home():
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_DINPUT)
 
                     # set CURRSENSE_OUT (D3) to analog input
-                    #self._zb.remote_at(dest_addr_long=bytes_mac, command=CURRSENSE_OUT, parameter=XB_CONF_ADC)
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command=CURRSENSE_OUT, parameter=XB_CONF_ADC)
                     
                     # set RELAY_TOGGLE (D0) to output low
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
@@ -1025,7 +1056,7 @@ class Home():
         # acquire process packets lock
         acquired = self._process_packets_lock.acquire(blocking=False)
 
-        # if could not get lock (other thread is receiving packets)
+        # if could not get lock
         if(not acquired):
             # put packet into queue
             self._packet_queue.put(packet, block=True, timeout=DEFAULT_TIMEOUT)
@@ -1109,7 +1140,7 @@ class Home():
     def Add_task(self, params):
         
         if("task_type" not in params):
-            self.Log("can't add task, no \"schedule_type\" in parameters")
+            self.Log("can't add task, no \"task_type\" in parameters")
             return False
 
         if("task_id" not in params):
@@ -1130,6 +1161,13 @@ class Home():
         # re define command to task command
         run_params["command"] = task_command
 
+        year = None
+        month = None
+        day = None
+        hour = None
+        minute = None
+        second = None
+        
         # if interval type
         if(task_type == "interval"):
             if("year" in params):
@@ -1149,21 +1187,10 @@ class Home():
             self._sched.add_job(self._task_function, trigger='interval', years=year, months=month, days=day, hours=hour, minutes=minute, seconds=second, args=[run_params], id=task_id, replace_existing=True)
 
         # if repeating type
-        elif(task_type == "cron"):
+        elif(task_type == "day"):
 
-            year = None
-            month = None
-            day = None
-            hour = None
-            minute = None
-            second = None
-
-            if("year" in params):
-                year = int(params["year"])
-            if("month" in params):
-                month = params["month"]
             if("day" in params):
-                day = params["day"]
+                day_of_week = int(params["day"])
             if("hour" in params):
                 hour = int(params["hour"])
             if("minute" in params):
@@ -1172,7 +1199,7 @@ class Home():
                 second = int(params["second"])
 
             # add job
-            self._sched.add_job(self._task_function, trigger='cron', year=year, month=month, day=day, hour=hour, minute=minute, second=second, args=[run_params], id=task_id, replace_existing=True)
+            self._sched.add_job(self._task_function, trigger='cron', day_of_week=day_of_week, hour=hour, minute=minute, second=second, args=[run_params], id=task_id, replace_existing=True)
             
         # if single occurance type
         elif(task_type == "once"):
@@ -1183,11 +1210,11 @@ class Home():
                 return False
 
             year = int(params["year"])
-            month = int(params["month"])
-            day = int(params["day"])
+            month = params["month"]
+            day = params["day"]
             hour = int(params["hour"])
-            minute = int(params["minute"])
-            second = int(params["second"])
+            minute  = int(params["minute"])
+            second  = int(params["second"])
 
             self._sched.add_job(self._task_function, trigger='date',
                               run_date=time.datetime(year, month, day, hour, minute, second),
@@ -1199,7 +1226,9 @@ class Home():
 
         self.Log("added task \"" + task_id + "\" to schedule")
         return True
+    """
 
+    """
     def Remove_task(self, task_id):
         self._sched.remove_job(task_id)
         self.Log("removed task \"" + task_id + "\" from schedule")
@@ -1227,14 +1256,21 @@ class Home():
         else:
             command = "invalid"
 
+        # check for delayed command
+        if("delay_seconds" in params):
+            delay = float(params["delay_seconds"])
+            del(params["delay_seconds"])
+            t = Timer(delay, self.Run_command, params)
+            t.start()
+            return("ok")
+
         # test
         if (command == "test"):
             self.Log("receieved test command")
             return("ok")
 
         # get current temp
-        elif(command == "get_curr_temp"):
-
+        elif(command in ["get_curr_temp", "get_current_temp"]):
             # check if units are specified
             if("units" in params):
                 units = params["units"][0].upper()
@@ -1335,7 +1371,7 @@ class Home():
                 return("failed")
 
             success = self.Set_device_level(device_name, int(level))
-            
+
             if(not success):
                 return("failed")
             else:
@@ -1346,7 +1382,7 @@ class Home():
 
             if('name' not in params):
                 self.Log("cannot run get command, must specify \"name\"")
-                return(command + ":failed")
+                return("failed")
             
             # get device name
             device_name = params['name']
@@ -1440,7 +1476,7 @@ class Home():
 
             # return without extra ","
             return (device_list[:-1])
-
+        
         elif(command == "list_devices_with_types"):
             device_list = ""
 
@@ -1456,7 +1492,7 @@ class Home():
         else:
             self.Log("recieved invalid command")
             return("invalid")
-        
+
         """
         # add a task
         elif(command == "add_task"):
@@ -1476,33 +1512,8 @@ class Home():
         self._log.info(logstr)
         print(time.strftime(LOG_TIMESTAMP) + ": " + logstr)
 
-"""
-def Update_thermostat():
-    global myhome
-    myhome.Thermostat_update()
-"""
-
-"""
-def Run_task(task):
-    global myhome
-    myhome.Run_command(task)
-"""
-
-"""
-def Log_power_usage():
-    global myhome
-    myhome.Log_power_usages()
-"""
-
-"""
-def Log_temp():
-    global myhome
-    myhome.Log_power_usages()
-"""
-
 if(__name__ == "__main__"):
     print("this is a library. import it to use it")
     exit(0)
 
-myhome = Home() #thermostat_function=Update_thermostat, power_usage_function=Log_power_usages) # task_function=Run_task
-
+myhome = Home()
