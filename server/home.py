@@ -15,27 +15,94 @@ from queue import *
 import RPi.GPIO as gpio
 gpio.setmode(gpio.BCM) # set gpio numbering mode to BCM
 
-from thermostat_constants import *
-from logging_constants import *
-from xbee_constants import *
-
 DEVICE_DB_FILENAME = ".devices.json"               # path to device db file
 #TASKS_DB_FILENAME = "sqlite:///.tasks.db"          # path to task db file
 THERM_SETTINGS_FILENAME = ".thermostat.json"       # path to thermostat settings file
 LEVEL_UNK = -1                                     # special device level used to mean level is unknown
-
-COORDINATOR_MAC = "0013a20041553733"
-MAX_RX_TRIES = 3
+UNK = "unknown"
 
 SWITCH_TYPE = "switch"
 DIMMER_TYPE = "dimmer"
-DEVICE_TYPES = [SWITCH_TYPE, DIMMER_TYPE]   # valid device types
-
-UNK = "unknown"
+CUSTOM_SWITCH = "custom-switch"
+CUSTOM_PULSE = "custom-pulse"
+CUSTOM_INPUT = "custom-input"
+CUSTOM_TYPES = [CUSTOM_SWITCH, CUSTOM_PULSE, CUSTOM_INPUT]
+NORMAL_TYPES = [SWITCH_TYPE, DIMMER_TYPE]
+DEVICE_TYPES = [SWITCH_TYPE, DIMMER_TYPE, CUSTOM_SWITCH, CUSTOM_PULSE, CUSTOM_INPUT] # list of valid device types
 
 POWER_LOG_TASKID = "__power_logger_task__"
 TEMP_LOG_TASKID = "__temp_logger_task__"
 THERM_TASKID = "__therm_task__"
+
+###################### Logging Constants ###########################
+LOG_FILENAME = "main_log.log"
+LOG_FORMAT = '%(asctime)s : %(name)s : %(message)s'
+LOG_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
+
+POWER_LOG_FILENAME = "power_log.csv"
+POWER_LOG_INTERVAL = .1 # interval in minutes
+POWER_TIMESTAMP = LOG_TIMESTAMP
+
+TEMP_LOG_FILENAME = "temp_log.csv"
+TEMP_LOG_INTERVAL = 5 # interval in minutes
+TEMP_LOG_UNITS = "F" # possible values: "F", "C", "K"
+TEMP_TIMESTAMP = LOG_TIMESTAMP
+
+##################### Thermostat Constants ########################
+# default settings
+INIT_TEMP_MODE = "off"   # possible values: "off", "auto", "heat", "cool"
+INIT_FAN_MODE = "off"    # possible values: "off", "auto", "on", "off"
+INIT_SET_TEMP = 70       # initial set temperature in degrees Fahrenheit
+INIT_LOWER_DIFF = 3      # init lower difference bound from set temperature in degrees Fahrenheit
+INIT_UPPER_DIFF = 3      # init upper difference bound from set temperature in degrees Fahrenheit
+
+DEFAULT_TEMP_UNITS = "F" # default units returned and used to set temp, possible values: "F", "C", "K"
+
+THERM_INTERVAL = 30      # seconds in time between thermostat relay adjustments
+
+# control pins (BCM numbering)
+THERM_AC_CTRL = 13
+THERM_HEAT_CTRL = 19
+THERM_FAN_CTRL = 26
+
+TEMP_ADC = 'D0'
+
+###################### XBee Constants ###########################
+DEFAULT_TIMEOUT = 2 # seconds
+
+MAX_RX_TRIES = 3
+
+XB_CONF_HIGH = b'\x05'
+XB_CONF_LOW = b'\x04'
+XB_CONF_DINPUT = b'\x03'
+XB_CONF_ADC = b'\x02'
+
+##################### Device Constants #########################
+# max inc/dec tries before giving up on setting light level
+LIGHT_SET_TRIES = 50
+
+# relay toggle pin
+RELAY_TOGGLE = 'D0'
+# relay status pin
+RELAY_STAT = 'D1'
+# number of DPOT positions
+DPOT_NUM_POS = 30
+LEVEL_ONEV = (1023 / 1.2)
+# DPOT INC# pin
+DPOT_INC_N = 'D6'
+# DPOT U/D# pin
+DPOT_UD_N = 'D4'
+# D flip flop clear
+DFLIPCLR_N = 'D5'
+# DPOT analog output pin
+DPOT_OUT = 'D3'
+
+# current sense adc pin
+CURRSENSE_OUT = 'D2'
+# diode drop
+DIODE_DROP = 0.326
+# ac voltage
+AC_VOLTAGE = 120
 
 class Home():
     def __init__(self): #, thermostat_function, power_log_function, temp_log_function):
@@ -62,8 +129,10 @@ class Home():
         # start scheduler
         self._sched.start()
 
+        self.Log_power_usage()
+        
         # start power usage logger task
-        #self._sched.add_job(self.Log_power_usage, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
+        self._sched.add_job(self.Log_power_usage, trigger='interval', minutes=POWER_LOG_INTERVAL, id=POWER_LOG_TASKID, replace_existing=True)
 
         # start temperature logger task
         self._sched.add_job(self.Log_temp, trigger='interval', minutes=TEMP_LOG_INTERVAL, id=TEMP_LOG_TASKID, replace_existing=True)
@@ -206,14 +275,12 @@ class Home():
         if(not samples):
             return LEVEL_UNK
 
-        adc_val = samples[TEMP_ADC_SAMPLE_IDENT]
+        sample_val = samples[self.Pin2SampleIdent(TEMP_ADC, adc=True)]
 
-        adc_volts = (adc_val / 1023)*1.2
-
-        self.Log("temp adc volts = " + str(adc_volts))
+        sample_volts = (sample_val / 1023)*1.2
 
         # convert to specified units
-        return self.Convert_temp(((adc_volts - 0.5) / .01), "C", units)
+        return self.Convert_temp(((sample_volts - 0.5) / .01), "C", units)
 
     def Get_set_temp(self, units=DEFAULT_TEMP_UNITS):
 
@@ -426,6 +493,9 @@ class Home():
             self.Log("curr temp mode = " + curr_temp_mode)
             self.Log("curr fan mode = " + curr_fan_mode)
 
+            if(curr_temp_mode != temp_mode and temp_mode != "auto"):
+                pass
+            
             # if fan set to off or on
             if(fan_mode != "auto"):
                 self._Set_curr_fan_mode(fan_mode)
@@ -491,21 +561,60 @@ class Home():
                             self._Set_curr_temp_mode("off")
 
     def Get_power_usage(self, device_name):
+
+        currsense_out_sample_ident = self.Pin2SampleIdent(CURRSENSE_OUT, adc=True)
         
         # sample device's current sense pin
-        sample_val = self._Sample_xbee(device_name, pins=[CURRSENSE_SAMPLE_IDENT])[CURRSENSE_SAMPLE_IDENT]
+        samples = self._Sample_xbee(device_name, pins=[currsense_out_sample_ident])
         
         # if could not get sample
-        if(sample_val == LEVEL_UNK):
+        if(not samples):
             return LEVEL_UNK
+
+        # get sampled value
+        sample_val = samples[currsense_out_sample_ident]
 
         # convert to voltage
         sample_voltage = (sample_val / 1023.0) * 1.2
 
-        # convert to ac current amplitude (mA)
-        ac_current = (sample_voltage*(1.25)) / .1
+        off = False
+        checked_stat = False
 
-        # calculate apparent power (mVA)
+        # if relay is off, recalibrate and return 0 power usage
+        if(self.Get_device_level(device_name) == 0):
+            with self._db_lock:
+                #self._device_db[device_name]["noload_vout"] = (DIODE_DROP + sample_voltage)/0.4
+                #self.Log("noload_vout = " + str(self._device_db[device_name]["noload_vout"]))
+                self._device_db[device_name]["voltage_div"] = (DIODE_DROP + sample_voltage)/2.5
+            return 0.00
+        
+        with self._db_lock:
+            if("voltage_div" not in self._device_db[device_name]):
+                #noload_vout = 2.5
+                voltage_div = 0.4
+            else:
+                #diode_drop = self._device_db[device_name]["diode_drop"]
+                #noload_vout = self._device_db[device_name]["noload_vout"]
+                voltage_div = self._device_db[device_name]["voltage_div"]
+
+        diode_drop = DIODE_DROP
+        noload_vout = 2.5
+
+        self.Log("sample voltage = " + str(sample_voltage))
+        self.Log("chip output voltage = " + str((sample_voltage + diode_drop) / voltage_div))
+        self.Log("voltage divider = " + str(voltage_div))
+        #self.Log("diode drop = " + str(diode_drop))
+        #self.Log("noload_vout = " + str(noload_vout))
+        
+        # convert to ac current amplitude (A)
+        ac_current = abs(((sample_voltage + diode_drop) / voltage_div) - noload_vout)*10
+
+        self.Log("current = " + str(ac_current))
+        
+        if(ac_current <= 0):
+            return 0.0
+        
+        # calculate apparent power (VA)
         apparent_power = ac_current*AC_VOLTAGE
 
         # get power factor
@@ -513,12 +622,12 @@ class Home():
             if("power_factor" in self._device_db[device_name]):
                 power_factor = self._device_db[device_name]["power_factor"]
 
-            # assume reative if not specified
+            # assume purely resistive load if not specified
             else:
                 power_factor = 1.0
 
-        # return approximate real power (mW)
-        return int(round(apparent_power * power_factor))
+        # return approximate real power (W)
+        return apparent_power * power_factor
 
     def Log_power_usage(self):
 
@@ -543,17 +652,19 @@ class Home():
                     self.Log("power usage = " + str(power_usage))
 
                     # add line to csv
-                    f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + power_usage + "\n")
+                    f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + str(power_usage) + "\n")
 
     """
     Function: Mac2bytes
     receives a string of 16 hex characters (mac address)
     returns a bytearray usable by ZigBee API
     """
-    def Mac2bytes(self, mac):
+    @staticmethod
+    def Mac2bytes(mac):
         return bytearray.fromhex(mac)
 
-    def Bytes2mac(self, mac):
+    @staticmethod
+    def Bytes2mac(mac):
         return mac.hex()
 
     def Get_device_type(self, device_name):
@@ -588,36 +699,42 @@ class Home():
 
         # switch device
         if(device_type == SWITCH_TYPE):
+
+            relay_stat_sample_ident = self.Pin2SampleIdent(RELAY_STAT)
+            
             # get relay status
-            samples = self._Sample_xbee(device_name=device_name, pins=[RELAY_STAT_SAMPLE_IDENT])
+            samples = self._Sample_xbee(device_name=device_name, pins=[relay_stat_sample_ident])
 
             if(not samples):
                 return LEVEL_UNK
-            return samples[RELAY_STAT_SAMPLE_IDENT]
+            return samples[relay_stat_sample_ident]
             
         # dimmer device
         elif(device_type == DIMMER_TYPE):
-            samples = self._Sample_xbee(device_name=device_name, pins=[RELAY_STAT_SAMPLE_IDENT, DPOT_OUT_SAMPLE_IDENT])
+
+            relay_stat_sample_ident = self.Pin2SampleIdent(RELAY_STAT)
+            dpot_out_sample_ident = self.Pin2SampleIdent(DPOT_OUT, adc=True)
+            
+            samples = self._Sample_xbee(device_name=device_name, pins=[relay_stat_sample_ident, dpot_out_sample_ident])
 
             if(not samples):
                 return LEVEL_UNK
             
-            relay_level = samples[RELAY_STAT_SAMPLE_IDENT]
+            relay_level = samples[relay_stat_sample_ident]
 
             # if relay is off
             if(relay_level == 0):
-                # turn off sampling
                 return 0
 
             # if relay is on
             else:
                 # get level
-                dpot_level = 852 - samples[DPOT_OUT_SAMPLE_IDENT]
+                dpot_level = LEVEL_ONEV - samples[dpot_out_sample_ident]
                 
                 # calculate brightness
-                brightness = int(round(100*((dpot_level**2) / (852**2))))
+                brightness = int(round(100*((dpot_level**2) / (LEVEL_ONEV**2))))
 
-                if(brightness >= 95):
+                if(brightness >= 99):
                     brightness = 100
                 elif(brightness <= 0):
                     brightness = 1
@@ -643,9 +760,6 @@ class Home():
 
                 bytes_mac = self.Mac2bytes(mac_addr)
 
-        else:
-            bytes_mac = self.Mac2bytes(COORDINATOR_MAC)
-
         # get process packets lock
         with self._process_packets_lock:
             
@@ -655,6 +769,9 @@ class Home():
                 
             with self._zb_lock:
                 try:
+
+                    start_time = time.time()
+                    
                     # if remote device
                     if(device_name != False):
                         self.Log("requesting sample")
@@ -667,6 +784,11 @@ class Home():
                     # for each try
                     for x in range(MAX_RX_TRIES):
                         try:
+                            # check if timed out
+                            if(time.time() - start_time >= timeout):
+                                self.Log("could not get sample from device \"" + device_name + "\", check the device")
+                                return False
+                            
                             # wait for a packet
                             packet = self._packet_queue.get(block=True, timeout=timeout)
 
@@ -746,9 +868,23 @@ class Home():
         if(not self.Name_in_db(device_name)):
             self.Log("could not set level of device \"" + device_name + "\", name not in db")
             return False
-        
-        # get current device level
-        curr_level = self.Get_device_level(device_name)
+
+        # get db lock
+        with self._db_lock:
+            # get device type
+            device_type = self._device_db[device_name]['type']
+
+            if(device_type in CUSTOM_TYPES):
+                if(device_type == CUSTOM_SWITCH):
+                    curr_level = self._device_db[device_name]['status']
+                else:
+                    curr_level = 0
+            elif(device_type in NORMAL_TYPES):
+                # get current device level
+                curr_level = self.Get_device_level(device_name)
+            else:
+                self.Log("could not set device level to " + str(level) + ", not a valid device type")
+                return False
         
         # check if got a sample
         if(curr_level == LEVEL_UNK):
@@ -762,20 +898,52 @@ class Home():
         
         # get db lock
         with self._db_lock:
-            
-            # get device type
-            device_type = self._device_db[device_name]['type']
-            
-            # if outlet
+            # if switch
             if(device_type == SWITCH_TYPE):
                 # toggle relay
                 self._Toggle_relay(device_name)
                 return True
-
             elif(device_type == DIMMER_TYPE):
                 # set light level using a thread
                 Thread(target=lambda: self._Set_light(device_name, curr_level, level)).start()
                 return True
+            elif(device_type == CUSTOM_SWITCH):
+                self._Set_custom_switch(device_name, curr_level=curr_level)
+                return True
+            elif(device_type == CUSTOM_PULSE):
+                self._Toggle_custom_pulse(device_name)
+                return True
+
+    def _Set_custom_switch(self, device_name, curr_level = False):
+
+        with self._db_lock:
+            # get custom control pin number
+            pin = self._device_db[device_name]['pin']
+            # get current level
+            if(not curr_level):
+                curr_level = self._device_db[device_name]['status']
+            device_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
+
+        with self._zb_lock:
+            if(curr_level == 0):
+                # make pin low
+                self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_LOW)
+            else:
+                # set pin high
+                self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_HIGH)
+
+    def _Toggle_custom_pulse(self, device_name):
+
+        with self._db_lock:
+            # get custom control pin number
+            pin = self._device_db[device_name]['pin']
+            device_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
+
+        with self._zb_lock:
+            # set pin high
+            self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_HIGH)
+            # make pin low
+            self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_LOW)
 
     def _Toggle_relay(self, device_name):
 
@@ -860,8 +1028,9 @@ class Home():
                             break
 
             finally:
+                self.Log("setting XBCTRL# to input")
                 # set D flip flop CLR# to high (not cleared)
-                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_HIGH)
+                self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_DINPUT)
 
                 # set U/D# back to low
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
@@ -929,6 +1098,13 @@ class Home():
 
             return False
 
+    @staticmethod
+    def Pin2SampleIdent(pin, adc=False):
+        if(not adc):
+            return "dio-" + pin[1:]
+        else:
+            return "adc-" + pin[1:]
+
     """
     Function: Add_device
     attempts to add a device to the db, returns True if successful, false otherwise
@@ -951,9 +1127,11 @@ class Home():
             # get mac as bytes
             bytes_mac = self.Mac2bytes(device_mac)
 
+            custom = False
+            
             # acquire zigbee lock
             with self._zb_lock:
-                # for outlets and lights, set up change detection for input button
+
                 if(device_type in [SWITCH_TYPE, DIMMER_TYPE]):
                     # set RELAY_STATUS (D1) to input
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_DINPUT)
@@ -977,6 +1155,37 @@ class Home():
                     # set U/D# to low
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
+                elif(device_type.split("-")[0] == "custom"):
+
+                    custom = True
+                    
+                    split_ident = device_name.split("_")
+                    if(len(split_ident) != 3):
+                        self.Log("invalid custom device identifier: " + str(device_name))
+                        return False
+
+                    # get io pin number
+                    dio = split_ident[1].upper()
+
+                    # check if seems like valid io pin
+                    if(dio[0] != "D"):
+                        self.Log("invalid pin identifier: " + str(dio))
+                        return False
+
+                    # check if two characters
+                    if(len(dio) != 2):
+                        self.Log("invalid pin identifier: " + str(dio) + ", only pins D0 to D9 work with this XBee API")
+
+                    # custom switch or pulse
+                    if(device_type in [CUSTOM_SWITCH, CUSTOM_PULSE]):
+                        # set pin to output low initially
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=dio, parameter=XB_CONF_LOW)
+
+                    # custom input
+                    elif(device_type == CUSTOM_INPUT):
+                        # set pin to digital input
+                        self._zb.remote_at(dest_addr_long=bytes_mac, command=dio, parameter=XB_CONF_DINPUT)
+
                 # create node identifier
                 node_identifier = device_type + "_" + device_mac[12:]
 
@@ -989,8 +1198,12 @@ class Home():
                 self._zb.remote_at(dest_addr_long=bytes_mac, command='WR')
 
             with self._db_lock:
-                # add to db dict
-                self._device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type}
+                if(custom):
+                    # add to db dict
+                    self._device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type, 'pin':dio, 'status':0}
+                else:
+                    # add to db dict
+                    self._device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type}
 
             self.Log("added device \"" + device_name + "\" of type \"" + device_type + "\" to db")
             return True
@@ -1087,7 +1300,7 @@ class Home():
                         
                         split_ident = node_identifier.split("_")
                         
-                        if(len(split_ident) == 2):       
+                        if(len(split_ident) >= 2):       
                             # get needed values
                             device_type = split_ident[0]
                         else:
@@ -1362,9 +1575,17 @@ class Home():
             if('level' not in params):
                 self.Log("cannot run set command, must specify \"level\"")
                 return("failed")
+
+            level = params['level']
             
-            # get wanted device level
-            level = int(params['level'])
+            if(level == "off"):
+                level = 0
+            elif(level == "on"):
+                level = 100
+            elif(level in ["dimmed", "dim"]):
+                level = 50
+            else:
+                level = int(params['level'])
 
             if(level < 0 or level > 100):
                 self.Log("level was invalid")
@@ -1515,5 +1736,3 @@ class Home():
 if(__name__ == "__main__"):
     print("this is a library. import it to use it")
     exit(0)
-
-myhome = Home()
