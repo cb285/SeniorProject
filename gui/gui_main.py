@@ -35,10 +35,10 @@ TIME_FORMAT = "%A %m-%d %I:%M %p" # clock time/date format
 
 REQUEST_TIMEOUT = 3               # seconds to wait for server response
 
-CLOCK_UPDATE = 10                 # seconds between clock updates
-THERMOSTAT_UPDATE = 10            # seconds between thermostat updates
+CLOCK_UPDATE = 30                 # seconds between clock updates
+THERMOSTAT_UPDATE = 60            # seconds between thermostat updates
 
-DEVICE_UPDATE_INTERVAL = 10       # seconds between device state updates
+DEVICE_UPDATE_INTERVAL = 5       # seconds between device state updates
 
 LARGE_FONT_SIZE = 35
 MEDIUM_FONT_SIZE = LARGE_FONT_SIZE - 5

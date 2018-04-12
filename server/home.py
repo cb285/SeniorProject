@@ -104,7 +104,7 @@ CURRSENSE_OUT = 'D2'
 # diode drop
 DIODE_DROP = 0.326
 # ac voltage
-AC_VOLTAGE = 120
+AC_VOLTAGE = 170
 
 class Home():
     def __init__(self): #, thermostat_function, power_log_function, temp_log_function):
@@ -566,7 +566,7 @@ class Home():
                     return
 
     def Get_power_usage(self, device_name):
-
+        
         currsense_out_sample_ident = self.Pin2SampleIdent(CURRSENSE_OUT, adc=True)
         
         # sample device's current sense pin
@@ -620,7 +620,7 @@ class Home():
             return 0.0
         
         # calculate apparent power (VA)
-        apparent_power = ac_current*AC_VOLTAGE
+        apparent_power = ac_current*AC_VOLTAGE / 2
 
         # get power factor
         with self._db_lock:
@@ -643,18 +643,20 @@ class Home():
             with open(POWER_LOG_FILENAME, 'a+') as f:
                 f.write("time,device_name,power_usage\n")
 
-                # open power log file
+        # open power log file
         with open(POWER_LOG_FILENAME, 'a+') as f:
             
             # for each device in database
             for device_name in self._device_db:
 
-                # get current power usage
-                power_usage = self.Get_power_usage(device_name)
-                self.Log(device_name + " power usage = " + str(power_usage) + " W")
+                if(self._device_db[device_name]['type'] in [DIMMER_TYPE, SWITCH_TYPE]):
                 
-                # add line to csv
-                f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + str(power_usage) + "\n")
+                    # get current power usage
+                    power_usage = self.Get_power_usage(device_name)
+                    self.Log(device_name + " power usage = " + str(power_usage) + " W")
+                    
+                    # add line to csv
+                    f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + str(power_usage) + "\n")
 
     """
     Function: Mac2bytes
@@ -742,6 +744,10 @@ class Home():
                     brightness = 1
                 
                 return brightness
+            
+        elif(device_type == CUSTOM_SWITCH):
+            with self._db_lock:
+                return self._device_db[device_name]['status']
 
     def _Sample_xbee(self, device_name=False, pins=False, timeout=DEFAULT_TIMEOUT):
         
@@ -781,17 +787,21 @@ class Home():
             with self._process_packets_lock:
                 # for each try
                 for x in range(MAX_RX_TRIES):
-                    self.Log(str(x) + " try")
+                    #self.Log(str(x) + " try")
                     try:
                         # check if timed out
                         if(time.time() - start_time >= timeout):
-                            self.Log("could not get sample from device \"" + device_name + "\", check the device")
-                            return False
-                            
+                            if(device_name != False):
+                                self.Log("could not get sample from device \"" + device_name + "\", check the device")
+                                return False
+                            else:
+                                self.Log("could not get sample from local xbee, check the device")
+                                return False
+                                
                         # wait for a packet
                         packet = self._packet_queue.get(block=True, timeout=timeout)
                         
-                        self.Log("packet = " + str(packet))
+                        #self.Log("packet = " + str(packet))
                         
                     except Empty:
                         if(device_name != False):
@@ -915,13 +925,13 @@ class Home():
             Thread(target=lambda: self._Set_light(device_name, curr_level, level)).start()
             return True
         elif(device_type == CUSTOM_SWITCH):
-            self._Set_custom_switch(device_name, curr_level=curr_level)
+            self._Set_custom_switch(device_name, level, curr_level)
             return True
         elif(device_type == CUSTOM_PULSE):
             self._Toggle_custom_pulse(device_name)
             return True
 
-    def _Set_custom_switch(self, device_name, curr_level = False):
+    def _Set_custom_switch(self, device_name, level, curr_level = False):
 
         with self._db_lock:
             # get custom control pin number
@@ -931,14 +941,20 @@ class Home():
                 curr_level = self._device_db[device_name]['status']
             device_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
 
-        if(curr_level == 0):
+        if(level == 0):
             with self._zb_lock:
                 # make pin low
                 self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_LOW)
+
+            with self._db_lock:
+                self._device_db[device_name]['status'] = 0
         else:
             with self._zb_lock:
                 # set pin high
                 self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_HIGH)
+
+            with self._db_lock:
+                self._device_db[device_name]['status'] = 100
 
     def _Toggle_custom_pulse(self, device_name):
 
@@ -949,7 +965,7 @@ class Home():
             pin = self._device_db[device_name]['pin']
             device_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
 
-        self.Log("custom pin = " + str(pin))
+        #self.Log("custom pin = " + str(pin))
             
         with self._zb_lock:
             # set pin high
@@ -1197,7 +1213,7 @@ class Home():
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
             elif(device_type.split("-")[0] == "cust"):
-
+                
                 custom = True
                 
                 split_ident = device_name.split("_")
@@ -1205,6 +1221,8 @@ class Home():
                     self.Log("invalid custom device identifier: " + str(device_name))
                     return False
 
+                self.Log("adding device name = " + str(device_name))
+                
                 # get io pin number
                 dio = split_ident[1].upper()
                 
@@ -1212,17 +1230,20 @@ class Home():
                 if(dio[0] != "D"):
                     self.Log("invalid pin identifier: " + str(dio))
                     return False
-
+                
                 # check if two characters
                 if(len(dio) != 2):
                     self.Log("invalid pin identifier: " + str(dio) + ", only pins D0 to D9 work with this XBee API")
 
                 # custom switch or pulse
                 if(device_type in [CUSTOM_SWITCH, CUSTOM_PULSE]):
+                    
                     # acquire zigbee lock
                     with self._zb_lock:
                         # set pin to output low initially
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=dio, parameter=XB_CONF_LOW)
+
+                        self.Log("here1")
 
                 # custom input
                 elif(device_type == CUSTOM_INPUT):
@@ -1233,7 +1254,7 @@ class Home():
 
             if(device_name.split("-")[0] == "cust"):
                 # create node identifier
-                node_identifier = device_name
+                node_identifier = device_type + "_" + dio + "_" + device_mac[12:]
             else:
                 # create node identifier
                 node_identifier = device_type + "_" + device_mac[12:]
@@ -1249,14 +1270,19 @@ class Home():
                 # save configuration
                 self._zb.remote_at(dest_addr_long=bytes_mac, command='WR')
 
+                self.Log("here2")
+
             with self._db_lock:
                 if(custom):
                     # add to db dict
                     self._device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type, 'pin':dio, 'status':0}
+                    self.Log("here3")
                 else:
                     # add to db dict
                     self._device_db[device_name] = {'name':device_name, 'mac':device_mac, 'type':device_type}
 
+
+            self.Log("here4")
             self.Log("added device \"" + device_name + "\" of type \"" + device_type + "\" to db")
             return True
 
@@ -1348,7 +1374,7 @@ class Home():
                         # try to identify device using node identifier
                         node_identifier = discovery_data["node_identifier"].decode("utf-8")
                         
-                        self.Log("NI = " + node_identifier)
+                        #self.Log("NI = " + node_identifier)
                         
                         split_ident = node_identifier.split("_")
                         
