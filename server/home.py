@@ -23,9 +23,9 @@ UNK = "unknown"
 
 SWITCH_TYPE = "switch"
 DIMMER_TYPE = "dimmer"
-CUSTOM_SWITCH = "custom-switch"
-CUSTOM_PULSE = "custom-pulse"
-CUSTOM_INPUT = "custom-input"
+CUSTOM_SWITCH = "cust-switch"
+CUSTOM_PULSE = "cust-pulse"
+CUSTOM_INPUT = "cust-input"
 CUSTOM_TYPES = [CUSTOM_SWITCH, CUSTOM_PULSE, CUSTOM_INPUT]
 NORMAL_TYPES = [SWITCH_TYPE, DIMMER_TYPE]
 DEVICE_TYPES = [SWITCH_TYPE, DIMMER_TYPE, CUSTOM_SWITCH, CUSTOM_PULSE, CUSTOM_INPUT] # list of valid device types
@@ -80,6 +80,8 @@ XB_CONF_ADC = b'\x02'
 ##################### Device Constants #########################
 # max inc/dec tries before giving up on setting light level
 LIGHT_SET_TRIES = 50
+
+CUSTOM_PULSE_TIME = 0.25 # seconds
 
 # relay toggle pin
 RELAY_TOGGLE = 'D0'
@@ -268,14 +270,18 @@ class Home():
             self.Set_temp_upper_diff(INIT_UPPER_DIFF)
 
     def Get_curr_temp(self, units=DEFAULT_TEMP_UNITS):
+
+        self.Log("getting curr temp")
+
+        temp_adc_sample_ident = self.Pin2SampleIdent(TEMP_ADC, adc=True)
         
-        samples = self._Sample_xbee()
+        samples = self._Sample_xbee(pins=[temp_adc_sample_ident])
 
         # check if could not get sample
         if(not samples):
             return LEVEL_UNK
 
-        sample_val = samples[self.Pin2SampleIdent(TEMP_ADC, adc=True)]
+        sample_val = samples[temp_adc_sample_ident]
 
         sample_volts = (sample_val / 1023)*1.2
 
@@ -298,6 +304,9 @@ class Home():
         with self._therm_lock:
             self._therm_settings["set_temp"] = temp_f
 
+        # update thermostat
+        Thread(target=lambda: self.Thermostat_update()).start()
+            
         return True
 
     @staticmethod
@@ -464,6 +473,9 @@ class Home():
             self.Log("invalid temp mode: " + str(temp_mode))
 
     def Thermostat_update(self):
+
+        self.Log("updating thermostat")
+        
         # acquire thermostat lock
         with self._therm_lock:
             
@@ -492,73 +504,66 @@ class Home():
 
             self.Log("curr temp mode = " + curr_temp_mode)
             self.Log("curr fan mode = " + curr_fan_mode)
-
-            if(curr_temp_mode != temp_mode and temp_mode != "auto"):
-                pass
             
             # if fan set to off or on
             if(fan_mode != "auto"):
+                # set to on or off
                 self._Set_curr_fan_mode(fan_mode)
 
-                # if fan is off, turn ac/heat off too
-                if(self._curr_fan_mode == "off"):
+                # if fan is off
+                if(fan_mode == "off"):
+                    # turn ac/heat off too
                     self._Set_curr_temp_mode("off")
-                elif(self._curr_fan_mode == "on"):
-                    self._Set_curr_temp_mode(temp_mode)
+                    return
+                # if fan is on
+                else:
+                    # if temp mode is not auto
+                    if(temp_mode != "auto"):
+                        # set to specified temp mode
+                        self._Set_curr_temp_mode(temp_mode)
+                        return
 
+            # if fan or temp mode is set to auto
+            
             # get difference from set temperature
             temp_diff = curr_temp - set_temp
+
+            if(temp_mode == "auto" and fan_mode == "on"):
+                temp_diff = (upper_diff + lower_diff)
 
             # if temperature is too high
             if(temp_diff > upper_diff):
                 self.Log("too high")
-                # check if should change current fan mode
-                if(curr_fan_mode != "on"):
-                    # check if can change current fan mode
-                    if(fan_mode in ["on", "auto"]):
-                        # turn fan on
+                # if can turn ac on
+                if(fan_mode in ["on", "auto"]):
+                    if(temp_mode != "heat"):
                         self._Set_curr_fan_mode("on")
-
-                # check if should change current temp mode
-                if(curr_temp_mode != "cool" and fan_mode != "off"):
-                    # check if can change current temp mode
                     if(temp_mode in ["cool", "auto"]):
                         # turn on ac
                         self._Set_curr_temp_mode("cool")
+                        return
 
             # if temperature is too low
             elif(-1*temp_diff > lower_diff):
                 self.Log("too low")
-                # check if should change current fan mode
-                if(curr_fan_mode != "on"):
-                    # check if can change current fan mode
-                    if(fan_mode in ["on", "auto"]):
-                        # turn fan on
+                # check if can change current fan mode
+                if(fan_mode in ["on", "auto"]):
+                    if(temp_mode != "cool"):
                         self._Set_curr_fan_mode("on")
-
-                # check if should change current temp mode
-                if(curr_temp_mode != "heat" and fan_mode != "off"):
-                    # check if can change current temp mode
                     if(temp_mode in ["heat", "auto"]):
-                        # turn on heat
+                        # turn heat on
                         self._Set_curr_temp_mode("heat")
+                        return
 
             # if temperature is within bounds
             else:
                 self.Log("just right")
-                # check if should change current fan mode
-                if(curr_fan_mode != "off"):
-                    # check if can change current fan mode
-                    if(fan_mode in ["off", "auto"]):
-                        # turn fan off
-                        self._Set_curr_fan_mode("off")
-                    
-                    # check if should change current temp mode
-                    if(curr_temp_mode != "off"):
-                        # check if can change current temp mode
-                        if(temp_mode in ["cool", "auto"]):
-                            # turn on ac
-                            self._Set_curr_temp_mode("off")
+                # check if can change current fan mode
+                if(fan_mode in ["off", "auto"]):
+                    # turn fan off
+                    self._Set_curr_fan_mode("off")
+                    self._Set_curr_temp_mode("off")
+                    return
 
     def Get_power_usage(self, device_name):
 
@@ -586,7 +591,7 @@ class Home():
                 #self._device_db[device_name]["noload_vout"] = (DIODE_DROP + sample_voltage)/0.4
                 #self.Log("noload_vout = " + str(self._device_db[device_name]["noload_vout"]))
                 self._device_db[device_name]["voltage_div"] = (DIODE_DROP + sample_voltage)/2.5
-            return 0.00
+            return 0.0
         
         with self._db_lock:
             if("voltage_div" not in self._device_db[device_name]):
@@ -632,27 +637,24 @@ class Home():
     def Log_power_usage(self):
 
         self.Log("logging power usage")
-        
-        # get database lock
-        with self._db_lock:
             
-            # if file is not already created
-            if(not os.path.isfile(POWER_LOG_FILENAME)):
-                with open(POWER_LOG_FILENAME, 'a+') as f:
-                    f.write("time, device_name, power_usage\n")
-
-            # open power log file
+        # if file is not already created
+        if(not os.path.isfile(POWER_LOG_FILENAME)):
             with open(POWER_LOG_FILENAME, 'a+') as f:
+                f.write("time,device_name,power_usage\n")
+
+                # open power log file
+        with open(POWER_LOG_FILENAME, 'a+') as f:
             
-                # for each device in database
-                for device_name in self._device_db:
+            # for each device in database
+            for device_name in self._device_db:
 
-                    # get current power usage
-                    power_usage = self.Get_power_usage(device_name)
-                    self.Log("power usage = " + str(power_usage))
-
-                    # add line to csv
-                    f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + str(power_usage) + "\n")
+                # get current power usage
+                power_usage = self.Get_power_usage(device_name)
+                self.Log("power usage = " + str(power_usage))
+                
+                # add line to csv
+                f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + str(power_usage) + "\n")
 
     """
     Function: Mac2bytes
@@ -689,6 +691,8 @@ class Home():
     
     def Get_device_level(self, device_name):
 
+        self.Log("getting device level")
+        
         device_type = self.Get_device_type(device_name)
 
         # check if device in db
@@ -743,113 +747,119 @@ class Home():
 
     def _Sample_xbee(self, device_name=False, pins=False, timeout=DEFAULT_TIMEOUT):
 
-        self.Log("in sample_xbee")
+        self.Log("trying to sample pins: " + str(pins))
         
         # if remote device
         if(device_name != False):
-            # get db lock
-            with self._db_lock:
-                
-                # get device mac
-                mac_addr = self.Get_device_mac(device_name)
+            
+            # get device mac
+            mac_addr = self.Get_device_mac(device_name)
+            
+            if(mac_addr == UNK):
+                self.Log("cannot sample device \"" + device_name + "\", no device with that name in db")
+                # return unknown
+                return LEVEL_UNK
 
-                if(mac_addr == UNK):
-                    self.Log("cannot sample device \"" + device_name + "\", no device with that name in db")
-                    # return unknown
-                    return LEVEL_UNK
-
-                bytes_mac = self.Mac2bytes(mac_addr)
+            bytes_mac = self.Mac2bytes(mac_addr)
 
         # get process packets lock
         with self._process_packets_lock:
-            
             # clear the queue
             while(not self._packet_queue.empty()):
                 self._packet_queue.get(block=False)
                 
-            with self._zb_lock:
-                try:
+        try:
+            # record start time
+            start_time = time.time()
+            
+            # if remote device
+            if(device_name != False):
+                with self._zb_lock:
+                    # request sample (periodic sampling every 255 ms)
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x0FF')
+            else:
+                with self._zb_lock:
+                    # request sample
+                    self._zb.at(command='IS')
 
-                    start_time = time.time()
-                    
-                    # if remote device
-                    if(device_name != False):
-                        self.Log("requesting sample")
-                        # request sample (periodic sampling every 255 ms)
-                        self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x0FF')
-                    else:
-                        # request sample
-                        self._zb.at(command='IS')
+            with self._process_packets_lock:
+                # for each try
+                for x in range(MAX_RX_TRIES):
+                    self.Log(str(x) + " try")
+                    try:
+                        # check if timed out
+                        if(time.time() - start_time >= timeout):
+                            self.Log("could not get sample from device \"" + device_name + "\", check the device")
+                            return False
+                            
+                        # wait for a packet
+                        packet = self._packet_queue.get(block=True, timeout=timeout)
                         
-                    # for each try
-                    for x in range(MAX_RX_TRIES):
-                        try:
-                            # check if timed out
-                            if(time.time() - start_time >= timeout):
-                                self.Log("could not get sample from device \"" + device_name + "\", check the device")
-                                return False
-                            
-                            # wait for a packet
-                            packet = self._packet_queue.get(block=True, timeout=timeout)
-
-                            self.Log("packet = " + str(packet))
-                            
-                        except Empty:
-                            packet = False
-                            
-                        # if didn't receive packet
-                        if(not packet):
-                            if(device_name):
-                                self.Log("could not get sample from device \"" + device_name + "\", check the device")
-                                return False
-                            else:
-                                self.Log("could not get sample from local xbee, check the device")
-                                return False
-                            
-                        # check if packet is from desired device
-                        if("source_addr_long" not in packet):
-                            if(not device_name):
-                                if("parameter" in packet):
+                        self.Log("packet = " + str(packet))
+                        
+                    except Empty:
+                        if(device_name != False):
+                            self.Log("could not get sample from device \"" + device_name + "\", check the device")
+                            return False
+                        else:
+                            self.Log("could not get sample from local xbee, check the device")
+                            return False
+                        
+                    # check if packet is from desired device
+                    if("source_addr_long" not in packet):
+                        if(not device_name):
+                            if("parameter" in packet):
+                                if(type(packet["parameter"]) is list):
                                     return packet["parameter"][0]
-                                else:
-                                    continue
-                            else:
-                                continue
-                            
+                        continue
+
+                    if (device_name != False):
                         if((bytearray(packet['source_addr_long'])) != bytes_mac):
                             self.Log("mac doesn't match")
                             continue
                         
-                        # check if sample packet
-                        if("samples" in packet):                        
-                            samples = packet["samples"][0]
+                    # check if sample packet
+                    if("samples" in packet):    
+                        samples = packet["samples"][0]
                             
-                            # if no specific pin given, return all
-                            if(not pins):
-                                return samples
+                        # if no specific pin given, return all
+                        if(not pins):
+                            return samples
                             
-                            sample_dict = dict()
-                            
-                            for pin in pins:
-                                if(pin not in samples):
-                                    continue
-                                elif(type(samples[pin]) is bool):
-                                    if(samples[pin]):
-                                        sample_dict[pin] = 100
-                                    else:
-                                        sample_dict[pin] = 0
-                                else:
-                                    sample_dict[pin] = samples[pin]
-                                    
-                            return sample_dict
+                        sample_dict = dict()
+
+                        cont = False
                         
-                    # if couldn't get desired samples
-                    return False
+                        # if specific pins given, make sure all are present
+                        for pin in pins:
+                            if(pin not in samples):
+                                cont = True
+                                break
+                            elif(type(samples[pin]) is bool):
+                                if(samples[pin]):
+                                    sample_dict[pin] = 100
+                                else:
+                                    sample_dict[pin] = 0
+                            else:
+                                sample_dict[pin] = samples[pin]
+
+                        if(cont):
+                            continue
+
+                        return sample_dict
                     
-                    # turn off periodic sampling
-                finally:
-                    if(device_name):
-                        self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
+                # if couldn't get desired samples
+                if(device_name != False):
+                    self.Log("couldn't sample device \"" + device_name + "\", please check device status")
+                    return False
+                else:
+                    self.Log("could not get sample from local xbee, check the device")
+                    return False
+            
+        finally:                    
+            if(device_name != False):
+                with self._zb_lock:
+                    self._zb.remote_at(dest_addr_long=bytes_mac, command='IR', parameter=b'\x00');
 
     """
     Function: Set_device_level
@@ -874,17 +884,19 @@ class Home():
             # get device type
             device_type = self._device_db[device_name]['type']
 
-            if(device_type in CUSTOM_TYPES):
-                if(device_type == CUSTOM_SWITCH):
+        if(device_type in CUSTOM_TYPES):
+            if(device_type == CUSTOM_SWITCH):
+                # get db lock
+                with self._db_lock:
                     curr_level = self._device_db[device_name]['status']
-                else:
-                    curr_level = 0
-            elif(device_type in NORMAL_TYPES):
-                # get current device level
-                curr_level = self.Get_device_level(device_name)
             else:
-                self.Log("could not set device level to " + str(level) + ", not a valid device type")
-                return False
+                curr_level = 0
+        elif(device_type in NORMAL_TYPES):
+            # get current device level
+            curr_level = self.Get_device_level(device_name)
+        else:
+            self.Log("could not set device level to " + str(level) + ", not a valid device type")
+            return False
         
         # check if got a sample
         if(curr_level == LEVEL_UNK):
@@ -896,23 +908,22 @@ class Home():
             self.Log("did not need to set device \"" + device_name +"\" level to " + str(level) + ", was already set")
             return True
         
-        # get db lock
-        with self._db_lock:
-            # if switch
-            if(device_type == SWITCH_TYPE):
-                # toggle relay
-                self._Toggle_relay(device_name)
-                return True
-            elif(device_type == DIMMER_TYPE):
-                # set light level using a thread
-                Thread(target=lambda: self._Set_light(device_name, curr_level, level)).start()
-                return True
-            elif(device_type == CUSTOM_SWITCH):
-                self._Set_custom_switch(device_name, curr_level=curr_level)
-                return True
-            elif(device_type == CUSTOM_PULSE):
-                self._Toggle_custom_pulse(device_name)
-                return True
+        # if switch
+        if(device_type == SWITCH_TYPE):
+            # toggle relay
+            self._Toggle_relay(device_name)
+            return True
+        elif(device_type == DIMMER_TYPE):
+            self.Log("here")
+            # set light level using a thread
+            Thread(target=lambda: self._Set_light(device_name, curr_level, level)).start()
+            return True
+        elif(device_type == CUSTOM_SWITCH):
+            self._Set_custom_switch(device_name, curr_level=curr_level)
+            return True
+        elif(device_type == CUSTOM_PULSE):
+            self._Toggle_custom_pulse(device_name)
+            return True
 
     def _Set_custom_switch(self, device_name, curr_level = False):
 
@@ -924,26 +935,34 @@ class Home():
                 curr_level = self._device_db[device_name]['status']
             device_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
 
-        with self._zb_lock:
-            if(curr_level == 0):
+        if(curr_level == 0):
+            with self._zb_lock:
                 # make pin low
                 self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_LOW)
-            else:
+        else:
+            with self._zb_lock:
                 # set pin high
                 self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_HIGH)
 
     def _Toggle_custom_pulse(self, device_name):
 
+        self.Log("in toggle_custom_pulse")
+        
         with self._db_lock:
             # get custom control pin number
             pin = self._device_db[device_name]['pin']
             device_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
 
+        self.Log("custom pin = " + str(pin))
+            
         with self._zb_lock:
             # set pin high
             self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_HIGH)
+            self.Log("set high")
+            time.sleep(CUSTOM_PULSE_TIME)
             # make pin low
             self._zb.remote_at(dest_addr_long=device_mac, command=pin, parameter=XB_CONF_LOW)
+            self.Log("set low")
 
     def _Toggle_relay(self, device_name):
 
@@ -966,74 +985,98 @@ class Home():
             # get device mac
             bytes_mac = self.Mac2bytes(self._device_db[device_name]['mac'])
             
-        # get zigbee lock
-        with self._zb_lock:
-            
-            if(curr_level == 0):
-                # turn on the relay
+        if(curr_level == 0):
+            # turn on the relay
+            self._Toggle_relay(device_name)
+                
+        curr_level = self.Get_device_level(device_name)
+
+        if(curr_level == LEVEL_UNK):
+            self.Log("couldn't set light level, couldn't communicate with device")
+            return
+
+        if(level == 0):
+            if(curr_level != 0):
                 self._Toggle_relay(device_name)
                 
-                curr_level = self.Get_device_level(device_name)
-
-            if(level == 0):
-                if(curr_level != 0):
-                    self._Toggle_relay(device_name)
-                
-            try:
+        try:
+            # get zigbee lock
+            with self._zb_lock:
                 # set D flip flop CLR# to low (cleared)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_LOW)
 
-                # if light is too bright
-                if(curr_level > level):
-                    
-                    # set U/D# to high (up)
+            # if light is too bright
+            if(curr_level > level):
+                # set U/D# to high (up)
+                # get zigbee lock
+                with self._zb_lock:
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_HIGH)
                     
-                    num_tries = 0
+                num_tries = 0
+                
+                # while the light is too bright
+                while(level < curr_level):
                     
-                    # while the light is too bright
-                    while(level < self.Get_device_level(device_name)):
-                        
-                        # decrement the dpot
-                        # set INC# high
+                    self.Log("inc")
+
+                    # get zigbee lock
+                    with self._zb_lock:
+                        # increment the dpot
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
-                        # set INC# low
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
                         
-                        num_tries += 1
+                    num_tries += 1
                         
-                        if(num_tries >= LIGHT_SET_TRIES):
-                            self.Log("could not set light to desired level, giving up.")
-                            break
+                    if(num_tries >= LIGHT_SET_TRIES):
+                        self.Log("could not set light to desired level, giving up")
+                        return
+                    
+                    curr_level = self.Get_device_level(device_name)
+
+                    if(curr_level == LEVEL_UNK):
+                        self.Log("couldn't set light level, couldn't communicate with device")
+                        return
                         
-                # light is too dim
-                else:
+            # light is too dim
+            else:
+                # get zigbee lock
+                with self._zb_lock:
                     # set U/D# to low (down)
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
                     
-                    num_tries = 0
-                    
-                    # while the light is too dim
-                    while(self.Get_device_level(device_name) < level):
-                        
-                        # increment the dpot
+                num_tries = 0
+                
+                # while the light is too dim
+                while(curr_level < level):
+
+                    self.Log("dec")
+
+                    # get zigbee lock
+                    with self._zb_lock:
+                        # decrement the dpot
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_HIGH)
-                        # set INC# low
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_INC_N, parameter=XB_CONF_LOW)
-                                                
-                        num_tries += 1
+
+                    num_tries += 1
                         
-                        if(num_tries >= LIGHT_SET_TRIES):
-                            self.Log("could not set light to desired level, giving up.")
-                            break
+                    if(num_tries >= LIGHT_SET_TRIES):
+                        self.Log("could not set light to desired level, giving up")
+                        return
 
-            finally:
-                self.Log("setting XBCTRL# to input")
-                # set D flip flop CLR# to high (not cleared)
+                    curr_level = self.Get_device_level(device_name)
+                    
+                    if(curr_level == LEVEL_UNK):
+                        self.Log("couldn't set light level, couldn't communicate with device")
+                        return    
+
+        finally:
+            # get zigbee lock
+            with self._zb_lock:
+                # set D flip flop CLR# to input (not cleared)
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DFLIPCLR_N, parameter=XB_CONF_DINPUT)
-
                 # set U/D# back to low
                 self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
+
     """
     Function: Name_in_db
     given device name
@@ -1128,11 +1171,11 @@ class Home():
             bytes_mac = self.Mac2bytes(device_mac)
 
             custom = False
-            
-            # acquire zigbee lock
-            with self._zb_lock:
 
-                if(device_type in [SWITCH_TYPE, DIMMER_TYPE]):
+            if(device_type in [SWITCH_TYPE, DIMMER_TYPE]):
+
+                # acquire zigbee lock
+                with self._zb_lock:
                     # set RELAY_STATUS (D1) to input
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_STAT, parameter=XB_CONF_DINPUT)
 
@@ -1142,7 +1185,9 @@ class Home():
                     # set RELAY_TOGGLE (D0) to output low
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=RELAY_TOGGLE, parameter=XB_CONF_LOW)
 
-                if(device_type == DIMMER_TYPE):
+            if(device_type == DIMMER_TYPE):
+                # acquire zigbee lock
+                with self._zb_lock:
                     # set DPOT_OUT (D2) to analog input
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_OUT, parameter=XB_CONF_ADC)
                     
@@ -1155,43 +1200,54 @@ class Home():
                     # set U/D# to low
                     self._zb.remote_at(dest_addr_long=bytes_mac, command=DPOT_UD_N, parameter=XB_CONF_LOW)
 
-                elif(device_type.split("-")[0] == "custom"):
+            elif(device_type.split("-")[0] == "cust"):
 
-                    custom = True
-                    
-                    split_ident = device_name.split("_")
-                    if(len(split_ident) != 3):
-                        self.Log("invalid custom device identifier: " + str(device_name))
-                        return False
+                custom = True
+                
+                split_ident = device_name.split("_")
+                if(len(split_ident) != 3):
+                    self.Log("invalid custom device identifier: " + str(device_name))
+                    return False
 
-                    # get io pin number
-                    dio = split_ident[1].upper()
+                # get io pin number
+                dio = split_ident[1].upper()
+                
+                # check if seems like valid io pin
+                if(dio[0] != "D"):
+                    self.Log("invalid pin identifier: " + str(dio))
+                    return False
 
-                    # check if seems like valid io pin
-                    if(dio[0] != "D"):
-                        self.Log("invalid pin identifier: " + str(dio))
-                        return False
+                # check if two characters
+                if(len(dio) != 2):
+                    self.Log("invalid pin identifier: " + str(dio) + ", only pins D0 to D9 work with this XBee API")
 
-                    # check if two characters
-                    if(len(dio) != 2):
-                        self.Log("invalid pin identifier: " + str(dio) + ", only pins D0 to D9 work with this XBee API")
-
-                    # custom switch or pulse
-                    if(device_type in [CUSTOM_SWITCH, CUSTOM_PULSE]):
+                # custom switch or pulse
+                if(device_type in [CUSTOM_SWITCH, CUSTOM_PULSE]):
+                    # acquire zigbee lock
+                    with self._zb_lock:
                         # set pin to output low initially
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=dio, parameter=XB_CONF_LOW)
 
-                    # custom input
-                    elif(device_type == CUSTOM_INPUT):
+                # custom input
+                elif(device_type == CUSTOM_INPUT):
+                    # acquire zigbee lock
+                    with self._zb_lock:
                         # set pin to digital input
                         self._zb.remote_at(dest_addr_long=bytes_mac, command=dio, parameter=XB_CONF_DINPUT)
 
+            if(device_name.split("-")[0] == "cust"):
+                # create node identifier
+                node_identifier = device_name
+            else:
                 # create node identifier
                 node_identifier = device_type + "_" + device_mac[12:]
-
+                
+            # acquire zigbee lock
+            with self._zb_lock:
+                
                 # write node identifier to device
                 self._zb.remote_at(dest_addr_long=bytes_mac, command='NI', parameter=node_identifier)
-
+                
                 # apply changes
                 self._zb.remote_at(dest_addr_long=bytes_mac, command='AC')
                 # save configuration
@@ -1483,7 +1539,7 @@ class Home():
             return("ok")
 
         # get current temp
-        elif(command in ["get_curr_temp", "get_current_temp"]):
+        elif(command == "get_curr_temp"):
             # check if units are specified
             if("units" in params):
                 units = params["units"][0].upper()
