@@ -271,7 +271,7 @@ class Home():
 
     def Get_curr_temp(self, units=DEFAULT_TEMP_UNITS):
 
-        self.Log("getting curr temp")
+        #self.Log("getting curr temp")
 
         temp_adc_sample_ident = self.Pin2SampleIdent(TEMP_ADC, adc=True)
         
@@ -474,7 +474,7 @@ class Home():
 
     def Thermostat_update(self):
 
-        self.Log("updating thermostat")
+        #self.Log("updating thermostat")
         
         # acquire thermostat lock
         with self._therm_lock:
@@ -496,14 +496,14 @@ class Home():
                 self.Log("temperature could not be measured, doing nothing")
                 return
             
-            self.Log("curr temp = " + str(curr_temp))
-            self.Log("set temp = " + str(set_temp))
+            #self.Log("curr temp = " + str(curr_temp))
+            #self.Log("set temp = " + str(set_temp))
 
-            self.Log("set temp mode = " + temp_mode)
-            self.Log("set fan mode = " + fan_mode)
+            #self.Log("set temp mode = " + temp_mode)
+            #self.Log("set fan mode = " + fan_mode)
 
-            self.Log("curr temp mode = " + curr_temp_mode)
-            self.Log("curr fan mode = " + curr_fan_mode)
+            #self.Log("curr temp mode = " + curr_temp_mode)
+            #self.Log("curr fan mode = " + curr_fan_mode)
             
             # if fan set to off or on
             if(fan_mode != "auto"):
@@ -605,16 +605,16 @@ class Home():
         diode_drop = DIODE_DROP
         noload_vout = 2.5
 
-        self.Log("sample voltage = " + str(sample_voltage))
-        self.Log("chip output voltage = " + str((sample_voltage + diode_drop) / voltage_div))
-        self.Log("voltage divider = " + str(voltage_div))
+        #self.Log("sample voltage = " + str(sample_voltage))
+        #self.Log("chip output voltage = " + str((sample_voltage + diode_drop) / voltage_div))
+        #self.Log("voltage divider = " + str(voltage_div))
         #self.Log("diode drop = " + str(diode_drop))
         #self.Log("noload_vout = " + str(noload_vout))
         
         # convert to ac current amplitude (A)
         ac_current = abs(((sample_voltage + diode_drop) / voltage_div) - noload_vout)*10
 
-        self.Log("current = " + str(ac_current))
+        #self.Log("current = " + str(ac_current))
         
         if(ac_current <= 0):
             return 0.0
@@ -651,7 +651,7 @@ class Home():
 
                 # get current power usage
                 power_usage = self.Get_power_usage(device_name)
-                self.Log("power usage = " + str(power_usage))
+                self.Log(device_name + " power usage = " + str(power_usage) + " W")
                 
                 # add line to csv
                 f.write(time.strftime(POWER_TIMESTAMP) + "," + device_name + "," + str(power_usage) + "\n")
@@ -690,8 +690,6 @@ class Home():
             return self._device_db[device_name]["mac"]
     
     def Get_device_level(self, device_name):
-
-        self.Log("getting device level")
         
         device_type = self.Get_device_type(device_name)
 
@@ -746,8 +744,6 @@ class Home():
                 return brightness
 
     def _Sample_xbee(self, device_name=False, pins=False, timeout=DEFAULT_TIMEOUT):
-
-        self.Log("trying to sample pins: " + str(pins))
         
         # if remote device
         if(device_name != False):
@@ -1311,7 +1307,7 @@ class Home():
             # add new device name to db
             saved_device["name"] = new_name
             self._device_db[new_name] = saved_device
-                
+
             self.Log("changed device name from \"" + orig_name + "\" to \"" + new_name + "\"")
             return True
 
