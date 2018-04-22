@@ -27,7 +27,8 @@ Config.set('kivy', 'keyboard_mode', 'systemandmulti')
 
 USER = "clayton"
 PASS = "clayton"
-SERVER_IP = "127.0.0.1"
+#SERVER_IP = "127.0.0.1"
+SERVER_IP = "10.10.1.251"
 PORT = 58000
 SERVER_URL = "https://" + USER + ":" + PASS + "@" + SERVER_IP + ":" + str(PORT)
 VERIFY_SSL = False

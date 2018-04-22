@@ -1565,9 +1565,9 @@ class Home():
             # check if units are specified
             if("units" in params):
                 units = params["units"][0].upper()
-                return str(self.Get_curr_temp(units=units))
+                return ("%.2f" % self.Get_curr_temp(units=units))
             else:
-                return str(self.Get_curr_temp())
+                return ("%.2f" % self.Get_curr_temp())
 
         # get set temp
         elif(command == "get_set_temp"):
