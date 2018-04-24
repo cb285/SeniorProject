@@ -3,7 +3,7 @@
 import sys
 from flask import Flask, request
 from flask_basicauth import BasicAuth
-from home import myhome
+from home import *
 
 PORT = 58000
 
@@ -11,9 +11,9 @@ USER = 'clayton'
 PASS = 'clayton'
 
 def main(args):
-    # get instance of home server
-    global myhome
-    
+    # create instance of home server
+    myhome = Home()
+
     # setup http request handler
     app = Flask(__name__)
 
